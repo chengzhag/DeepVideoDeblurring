@@ -1,0 +1,6 @@
+# matlab
+*.asv
+*.mexw64
+
+# 数据
+original_failure/*
