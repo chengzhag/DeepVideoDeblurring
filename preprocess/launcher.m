@@ -14,12 +14,6 @@ dirFlags = [datasets.isdir];
 datasets(~dirFlags) = [];
 datasets = {datasets(3:end).name};
 
-% permute and divide into training and testing sets
-num_datasets = numel(datasets);
-seed = 12;
-rng(seed);
-ds_idx = randperm(num_datasets);
-
 alignment = '';
 if alignmentType == 0
     alignment = '_nowarp';
@@ -31,29 +25,30 @@ end
 
 path2output = @(stage,d) sprintf('../data/testing_real_all_nostab%s/%s/image_%s',alignment,stage,d);   
 
-fn_in = @(dsi,type,fri) [path2dataset '/' datasets{ds_idx(dsi)} '/' type '/' sprintf('%05d.jpg',fri)];
+fn_in = @(dsi,type,fri) [path2dataset '/' datasets{dsi} '/' type '/' sprintf('%05d.jpg',fri)];
 fn_out = @(stage,fri,frid) sprintf('%s/%05d.jpg',path2output(stage,frid),fri);
 
-ds_range = 1:num_datasets;
-
-for l = -2:2
-    for i = 1:num_datasets
-        checkDir(path2output(datasets{i},num2str(l)));
-    end
-end
+% for l = -2:2
+%     for i = 1:num_datasets
+%         checkDir(path2output(datasets{i},num2str(l)));
+%     end
+% end
 
 %%
-for ii = 1:length(ds_range)
+parfor i = 1:length(datasets)
     fr_cnt = 0;
-    i = ds_range(ii);
     % get the frame range
-    message = ['Processing video ',datasets{ds_idx(i)},' (',num2str(ii),'/',num2str(length(ds_range)),')... '];
+    message = ['Processing video ',datasets{i},' (',num2str(i),'/',num2str(length(datasets)),')... '];
     disp(message);
-    files = dir([path2dataset '/' datasets{ds_idx(i)} '/input/*.jpg']);
+    files = dir([path2dataset '/' datasets{i} '/input/*.jpg']);
     if isempty(files)
-        files = dir([path2dataset '/' datasets{ds_idx(i)} '/input/*.png']);
+        files = dir([path2dataset '/' datasets{i} '/input/*.png']);
     end
     if ~isempty(files)
+        for l = -2:2
+            checkDir(path2output(datasets{i},num2str(l)));
+        end
+
         [~,ststr,~] = fileparts(files(1).name);
         [~,enstr,~] = fileparts(files(end).name);
         start_frame = str2num(ststr);
@@ -64,9 +59,9 @@ for ii = 1:length(ds_range)
         fr_idx = floor(linspace(frame_range(1),frame_range(end),num_frame));
         processBar = waitbar(0,message,'CreateCancelBtn','setappdata(gcbf,''canceling'',1)');
         for j = 1:num_frame
-            if getappdata(processBar,'canceling')
-                break
-            end
+%             if getappdata(processBar,'canceling')
+%                 break
+%             end
         
             fr_cnt = fr_cnt+1;
             % save image_1 to image_5
@@ -91,14 +86,14 @@ for ii = 1:length(ds_range)
                 else
                     v_i0 = v0;
                 end
-                imwrite(v_i0, fn_out(datasets{ds_idx(i)},fr_cnt,num2str(l)));
+                imwrite(v_i0, fn_out(datasets{i},fr_cnt,num2str(l)));
             end
             waitbar(j/num_frame,processBar);
         end
-        if getappdata(processBar,'canceling')
-            delete(processBar);
-            break
-        end
+%         if getappdata(processBar,'canceling')
+%             delete(processBar);
+%             break
+%         end
         delete(processBar);
     end        
 end

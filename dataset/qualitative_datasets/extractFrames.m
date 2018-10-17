@@ -1,4 +1,5 @@
-% Clean
+function extractFrames
+%% Clean
 clear
 close all
 
@@ -6,10 +7,16 @@ close all
 videoExt = '.mp4';
 list = dir(['*',videoExt]);
 videoNames = {list.name};
+nVideos = length(videoNames);
+nDone = 0;
+processBar = waitbar(0,'Reading ... ');
+qUpdateWaitbar = parallel.pool.DataQueue;
+lUpdateWaitbar = qUpdateWaitbar.afterEach(@(progress) updateWaitbar(progress));
 
-for videoName = videoNames
-    videoName = videoName{1};
-    message = ['Reading video ',videoName,'...'];
+tic
+for iVideo = 1:nVideos
+    videoName = videoNames{iVideo};
+    message = ['Reading video ',videoName,' (',num2str(iVideo),'/',num2str(nVideos),')...'];
     disp(message);
     
     video = VideoReader(videoName);
@@ -21,21 +28,22 @@ for videoName = videoNames
         mkdir(outFolder)
     end
     
-    processBar = waitbar(0,message,'CreateCancelBtn','setappdata(gcbf,''canceling'',1)');
     iFrame = 1;
     while hasFrame(video)
-        if getappdata(processBar,'canceling')
-            break
-        end
-        
         frame = readFrame(video);
         imwrite(frame,fullfile(outFolder,[sprintf('%05d',iFrame),'.jpg']));
         iFrame = iFrame+1;
-        waitbar(iFrame/nFrames,processBar);
+        qUpdateWaitbar.send(1/nFrames);
     end
-    if getappdata(processBar,'canceling')
-        delete(processBar);
-        break
+
+end
+%% Clean
+delete(processBar);
+delete(lUpdateWaitbar);
+
+    function updateWaitbar(progress)
+        nDone = nDone+progress;
+        x = nDone/nVideos;
+        waitbar(x,processBar,sprintf('Generating... %.2f%%, %.2f minutes left.',x*100,toc/x*(1-x)/60));
     end
-    delete(processBar);
 end
