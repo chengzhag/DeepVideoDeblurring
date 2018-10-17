@@ -47,7 +47,8 @@ for ii = 1:length(ds_range)
     fr_cnt = 0;
     i = ds_range(ii);
     % get the frame range
-    datasets{ds_idx(i)}
+    message = ['Processing video ',datasets{ds_idx(i)},' (',num2str(ii),'/',num2str(length(ds_range)),')... '];
+    disp(message);
     files = dir([path2dataset '/' datasets{ds_idx(i)} '/input/*.jpg']);
     if isempty(files)
         files = dir([path2dataset '/' datasets{ds_idx(i)} '/input/*.png']);
@@ -61,7 +62,12 @@ for ii = 1:length(ds_range)
         num_frame = numel(frame_range);
 
         fr_idx = floor(linspace(frame_range(1),frame_range(end),num_frame));
+        processBar = waitbar(0,message,'CreateCancelBtn','setappdata(gcbf,''canceling'',1)');
         for j = 1:num_frame
+            if getappdata(processBar,'canceling')
+                break
+            end
+        
             fr_cnt = fr_cnt+1;
             % save image_1 to image_5
             v0 = im2double(imread(fn_in(i,'input',fr_idx(j)+0)));
@@ -87,6 +93,12 @@ for ii = 1:length(ds_range)
                 end
                 imwrite(v_i0, fn_out(datasets{ds_idx(i)},fr_cnt,num2str(l)));
             end
+            waitbar(j/num_frame,processBar);
         end
+        if getappdata(processBar,'canceling')
+            delete(processBar);
+            break
+        end
+        delete(processBar);
     end        
 end

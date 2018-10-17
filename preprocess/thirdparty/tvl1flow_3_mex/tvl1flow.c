@@ -222,7 +222,7 @@ void mexFunction(int nlhs, mxArray *plhs[],
     
     
 
-    int dims[3];
+    mwSize dims[3];
     dims[0] = ny_out;
     dims[1] = nx_out;
     dims[2] = 2;

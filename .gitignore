@@ -7,3 +7,6 @@ data/*
 dataset/*
 outImg/*
 results/*
+
+# 代码
+!dataset/qualitative_datasets/*.m

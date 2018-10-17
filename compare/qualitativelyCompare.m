@@ -1,8 +1,8 @@
-%% 准备
+% Clean
 clear
 close all
 
-%% 读取文件夹
+%% Read dir
 root = '..\results\DeepVideoDeblurring_Results_Videos_Only';
 saveImg2 = 'original_failure';
 aligns = {'Input','DBN+Flow','DBN+Homog','DBN+Noalign'};
@@ -11,7 +11,7 @@ videoExt = '.mp4';
 list = dir(fullfile(root,aligns{1},['*',videoExt]));
 videoNames = {list.name};
 
-%% 读取并显示视频帧
+%% Read videos
 nRow = floor(sqrt(length(aligns)));
 nCol = ceil(length(aligns)/nRow);
 while 1
@@ -28,11 +28,11 @@ while 1
         message = ['Reading video ',aligns{iAlign},'\\',videoNames{iVideo},'...'];
         disp(message);
         processBar = waitbar(0,message);
-        % 分配内存
+        % Allocate memory
         video = VideoReader(fullfile(root,aligns{iAlign},videoNames{iVideo}));
         nFrames = min(nFrames,video.NumberOfFrames);
         vf = zeros(video.Height,video.Width,3,video.NumberOfFrames,'uint8');
-        % 读取视频
+        % Read video
         video = VideoReader(fullfile(root,aligns{iAlign},videoNames{iVideo}));
         iFrame = 1;
         while hasFrame(video)
