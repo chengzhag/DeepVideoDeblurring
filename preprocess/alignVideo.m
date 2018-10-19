@@ -16,7 +16,7 @@ for l = -2:2
 end
 
 %% Align
-nFrames = length(frames);
+nFrames = min(length(frames),nFramesMax);
 frameDirs = @(iFrame) fullfile(from,frames(iFrame).name);
 fr_cnt = 0;
 for iFrame = 1:min(nFrames,nFramesMax)
@@ -28,7 +28,7 @@ for iFrame = 1:min(nFrames,nFramesMax)
     
     for l = -2:2
         if l ~= 0
-            vi = im2double(imread(frameDirs(max(min(iFrame+l,nFrames),1))));
+            vi = im2double(imread(frameDirs(max(min(iFrame+l,length(frames)),1))));
             vig = single(rgb2gray(vi));
             if alignmentType == 0
                 v_i0 = vi;
