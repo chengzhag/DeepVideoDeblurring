@@ -10,3 +10,6 @@ results/*
 
 # 代码
 !dataset/qualitative_datasets/*.m
+
+# 参数
+logs/*

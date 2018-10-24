@@ -5,7 +5,8 @@ close all
 
 %% Read Videos
 videoExt = '.mp4';
-list = dir(['*',videoExt]);
+inOutFolder = '..\dataset\qualitative_datasets';
+list = dir(fullfile(inOutFolder,['*',videoExt]));
 videoNames = {list.name};
 nVideos = length(videoNames);
 nDone = 0;
@@ -23,7 +24,7 @@ for iVideo = 1:nVideos
     nFrames = video.NumberOfFrames;
     video = VideoReader(videoName);
     [~,name,~] = fileparts(videoName);
-    outFolder = fullfile(name,'input');
+    outFolder = fullfile(inOutFolder,name,'input');
     if ~exist(outFolder,'dir')
         mkdir(outFolder)
     end

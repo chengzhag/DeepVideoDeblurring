@@ -1,15 +1,17 @@
-function generateAllAlignments
+function generateAllAlignments(datasetDir,dataType)
 %% Clean
-clear;
 close all;
 warning off
 
 %% Parameters
-nFramesMax = 100;
-nAlignment = 3;
+nFramesMax = 1e6;
 alignments = {'_nowarp','_OF','_homography'};
-datasetDir = '..\dataset\qualitative_datasets';
+nAlignment = length(alignments);
+% datasetDir = '..\dataset\qualitative_datasets';
+% datasetDir = '..\dataset\quantitative_datasets';
 breakpointFile = 'breakpoint_generateAllAlignments.txt';
+% dataType = 'testing';
+% dataType = 'training';
 
 %% Read breakpoint
 fileID = fopen(breakpointFile,'r');
@@ -53,7 +55,7 @@ parfor iVideo = 1:nVideos
     % circshift to make waitbar more accurate
     for iAlignment = circshift(0:nAlignment-1,mod(iVideo,nAlignment))
         alignment = alignments{iAlignment+1};
-        to = fullfile(sprintf('../data/testing_real_all_nostab%s',alignment),videoFolder);
+        to = fullfile(sprintf('../data/%s_real_all_nostab%s',dataType,alignment),videoFolder);
         alignVideo(iAlignment,from,to,nFramesMax,qUpdateWaitbar);
     end
     disp([videoFolder,' done!']);
