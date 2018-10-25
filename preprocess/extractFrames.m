@@ -29,7 +29,7 @@ for iVideo = 1:nVideos
         mkdir(outFolder)
     end
     
-    iFrame = 1;
+    iFrame = 0;
     while hasFrame(video)
         frame = readFrame(video);
         imwrite(frame,fullfile(outFolder,[sprintf('%05d',iFrame),'.jpg']));

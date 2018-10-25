@@ -4,7 +4,8 @@ clear
 close all
 
 %% Parameters
-global nDone nAlignments nVideos processBar;
+global nAlignments nVideos processBar batchMB currSpeed;
+global batchSize cropWidth widthNeighbor;
 alignments = {'_nowarp'};%,'_OF','_homography'};
 nAlignments = length(alignments);
 inputDir = '../data';
@@ -18,6 +19,12 @@ argumentZoom = {1/4, 1/3, 1/2, 1};
 cropWidth = 128;
 nCrops = 10;
 widthNeighbor = 5;
+batchSize = 64;
+batchMB = batchSize*cropWidth*cropWidth*3*(widthNeighbor+1)/1e6;
+currSpeed = 0;
+global iBatch iPatch;
+iBatch = 0;
+iPatch = 1;
 
 %% Scan videos
 inputFolders = {};
@@ -36,10 +43,9 @@ end
 
 %% Prepare
 nVideos = length(videoNames{1});
-nDone = 0;
-processBar = waitbar(0,'Generating... ');
-qUpdateWaitbar = parallel.pool.DataQueue;
-lUpdateWaitbar = qUpdateWaitbar.afterEach(@(progress) updateWaitbar(progress));
+% batch make
+qPushPatch = parallel.pool.DataQueue;
+lPushPatch = qPushPatch.afterEach(@(params) pushPatch(params));
 
 %% Argument and crop
 % for all alignments
@@ -47,37 +53,31 @@ tic;
 for iAlignment = 1:nAlignments
     alignment = alignments{iAlignment};
     nVideos = length(videoNames{iAlignment});
+    saveAlignFolder = fullfile(saveDir,[saveFolderPrefix,alignment]);
+    checkDir(saveAlignFolder);
     % for all videos
-    parfor iVideo = 1:nVideos
+    for iVideo = 1:nVideos
         videoName = videoNames{iAlignment}{iVideo};
-        frameNames = dir( ...
+        inputFrameNames = dir( ...
             fullfile(inputFolders{iAlignment},videoName,'image_0',['*',frameExt]));
-        frameNames = {frameNames.name};
-        nFrames = length(frameNames);
+        inputFrameNames = {inputFrameNames.name};
+        GTFrameNames = dir(fullfile(gtDir,videoName,'GT',['*',frameExt]));
+        GTFrameNames = {GTFrameNames.name};
+        nFrames = length(inputFrameNames);
         
         % check dir
-        saveVideoDir = fullfile(saveDir,[saveFolderPrefix,alignment],videoName);
+        saveVideoDir = fullfile(saveAlignFolder,videoName);
         disp(saveVideoDir);
-        gtCropFolder = fullfile(saveVideoDir,'GT');
-        checkDir(gtCropFolder)
-        inputCropFolders = cell(1,widthNeighbor);
-        for iNeighbor1i = 1:widthNeighbor
-            iNeighbor = iNeighbor1i-ceil(widthNeighbor/2);
-            inputCropFolder = fullfile(saveVideoDir,['image_',num2str(iNeighbor)]);
-            checkDir(inputCropFolder)
-            inputCropFolders{iNeighbor1i} = inputCropFolder;
-        end
+        checkDir(saveVideoDir);
         
         % for all frames
         for iFrame = 1:nFrames
-            frameName = frameNames{iFrame};
+            frameName = inputFrameNames{iFrame};
             
             % argument
-            gt = imread(fullfile( ...
-                gtDir, ...
-                videoName, ...
-                'GT', ...
-                frameName));
+            frameDir = fullfile(gtDir,videoName,'GT',GTFrameNames{iFrame});
+            disp(frameDir);
+            gt = imread(frameDir);
             gtsArg = argument(gt,argumentZoom);
             inputsArg = cell(1,widthNeighbor);
             for iNeighbor1i = 1:widthNeighbor
@@ -106,37 +106,27 @@ for iAlignment = 1:nAlignments
                     hStart = hStarts(iCrop);
                     isHCrop = hStart:hStart+cropWidth-1;
                     isWCrop = wStart:wStart+cropWidth-1;
-%                     window = [hStart,wStart,cropWidth-1,cropWidth-1];
+
                     gtCrop = gt(isHCrop,isWCrop,:);
-                        
-                    [~,name,ext] = fileparts(frameName);
-                    cropName = sprintf('%s_%02d%s', ...
-                        name,(iArgument-1)*nCrops+iCrop,ext);
-                    gtCropDir = [gtCropFolder,'/',cropName];
-%                     disp(gtCropDir);
-%                     imwrite(gtCrop,gtCropDir);
+
+                    % crop patchInput
+                    patchInput = zeros(cropWidth,cropWidth,3*widthNeighbor,'uint8');
                     for iNeighbor1i = 1:widthNeighbor
                         input = inputsArg{iNeighbor1i}{iArgument};
                         inputCrop = input(isHCrop,isWCrop,:);
-                        
-                        inputCropDir = [inputCropFolders{iNeighbor1i},'/',cropName];
-%                         disp(inputCropDir);
-%                         imwrite(inputCrop,inputCropDir);
+                        patchInput(:,:,(iNeighbor1i-1)*3+1:(iNeighbor1i-1)*3+3) = inputCrop;
                     end
+                    pushPatch(patchInput,gtCrop,saveVideoDir);
                 end
             end
             % crop - end
-            qUpdateWaitbar.send(1/nFrames/nVideos);
-%             if iFrame == 10
-%                 break;
-%             end
+            showProgress(1/nFrames);
         end
-%         break;
+        % clear patch index -- start a new batch
+        iPatch = 1;
     end
 end
 %% Clean
-delete(processBar);
-delete(lUpdateWaitbar);
 
 function imsArg = argument(im,argumentZoom)
 imsArg = cell(2*4*length(argumentZoom));
@@ -162,10 +152,40 @@ for zoom = argumentZoom
 end
 end
 
-function updateWaitbar(progress)
-global nDone nAlignments nVideos processBar;
-% disp([nDone nAlignments nVideos])
-nDone = nDone+progress;
-x = nDone/nAlignments/nVideos;
-waitbar(x,processBar,sprintf('Generating... %.2f%%, %.2f minutes left.',x*100,toc/x*(1-x)/60));
+function showProgress(dProgress)
+global nAlignments nVideos currSpeed;
+persistent nVideoDone;
+if isempty(nVideoDone)
+    nVideoDone = 0;
+end
+
+nVideoDone = nVideoDone+dProgress;
+x = nVideoDone/nAlignments/nVideos;
+ms = toc/x*(1-x)/60;
+hours = floor(ms/60);
+mins = mod(ms,60);
+fprintf('Generating... %.2f%%, %.2f MB/s, %d hours %.1f minutes left.', ...
+    x*100,currSpeed,hours,mins);
+end
+
+function pushPatch(patchInput,patchGT,saveFolder)
+global batchSize cropWidth widthNeighbor iBatch batchMB currSpeed iPatch;
+persistent batchInput batchGT;
+if isempty(batchInput)
+    batchInput = zeros(batchSize,cropWidth,cropWidth,widthNeighbor*3,'uint8');
+    batchGT = zeros(batchSize,cropWidth,cropWidth,3,'uint8');
+end
+
+batchInput(iPatch,:,:,:) = patchInput;
+batchGT(iPatch,:,:,:) = patchGT;
+iPatch = iPatch+1;
+if iPatch > batchSize
+    saveDir = fullfile(saveFolder,sprintf( ...
+        'batch_width%d_size%d_%05d.mat',cropWidth,batchSize,iBatch));
+    disp(['saving' saveDir]);
+    save(saveDir,'batchInput','batchGT');
+    currSpeed = batchMB*iBatch/toc;
+    iPatch = 1;
+    iBatch = iBatch+1;
+end
 end

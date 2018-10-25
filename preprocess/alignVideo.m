@@ -43,7 +43,7 @@ for iFrame = 1:min(nFrames,nFramesMax)
         else
             v_i0 = v0;
         end
-        imwrite(v_i0, fullfile(to,['image_',num2str(l)],[sprintf('%05d',iFrame),'.jpg']));
+        imwrite(v_i0, fullfile(to,['image_',num2str(l)],[sprintf('%05d',iFrame-1),'.jpg']));
     end
     if isa(qUpdateWaitbar,'parallel.pool.DataQueue')
         qUpdateWaitbar.send(1/nFrames);
