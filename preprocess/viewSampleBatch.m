@@ -23,8 +23,8 @@ for iAlignment = 1:nAlignments
     disp(['viewing ' batchName]);
     sampleBatchDir = fullfile(alignFolder,videoName,batchName);
     batch = load(sampleBatchDir);
-    batchInput = batch.batchInput;
-    batchGT = batch.batchGT;
+    batchInput = permute(batch.batchInputTorch,[1,3,4,2]);
+    batchGT = permute(batch.batchGTTorch,[1,3,4,2]);
     
     % view sample batch
     nNeighbor = size(batchInput,4)/3;

@@ -183,7 +183,9 @@ if iPatch > batchSize
     saveDir = fullfile(saveFolder,sprintf( ...
         'batch_width%d_size%d_%05d.mat',cropWidth,batchSize,iBatch));
     disp(['saving' saveDir]);
-    save(saveDir,'batchInput','batchGT');
+    batchInputTorch = permute(batchInput,[1,4,2,3]);
+    batchGTTorch = permute(batchGT,[1,4,2,3]);
+    save(saveDir,'batchInputTorch','batchGTTorch','-v6');
     currSpeed = batchMB*iBatch/toc;
     iPatch = 1;
     iBatch = iBatch+1;

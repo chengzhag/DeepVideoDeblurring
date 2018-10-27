@@ -18,9 +18,7 @@ end
 %% Align
 nFrames = min(length(frames),nFramesMax);
 frameDirs = @(iFrame) fullfile(from,frames(iFrame).name);
-fr_cnt = 0;
 for iFrame = 1:min(nFrames,nFramesMax)
-    fr_cnt = fr_cnt+1;
     % save image_1 to image_5
     v0 = im2double(imread(frameDirs(iFrame)));
     v0g = single(rgb2gray(v0));
