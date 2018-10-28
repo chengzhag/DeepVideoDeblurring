@@ -29,6 +29,7 @@ This is the demo code for [Deep Video Deblurring for Hand-held Cameras](http://w
 ### Run prediction script
 - Run script: `sh run_pred.sh`
 - Results will be saved to `outImg`. 
+- Alternatively you can run script: `bash my_run_pred.sh` to get predictions from network with ALIGNMENT=("_OF" "_nowarp" "_homography"). Param ALIGNMENT can be customizes to your needs.
 
 ## Train
 
