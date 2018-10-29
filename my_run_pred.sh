@@ -1,10 +1,10 @@
 #!/bin/bash
 # Params
-ALIGNMENT=("_OF" "_nowarp" "_homography")
+ALIGNMENT=("_nowarp") # "_OF" "_homography")
 
 MODEL="model2_symskip_nngraph2_deeper"
 METHOD=""
-DATE="1018"
+DATE="1029"
 for align in ${ALIGNMENT[@]}
 # for((i=0;i<${#ALIGNMENT[@]};i++))
 do

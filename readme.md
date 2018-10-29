@@ -34,16 +34,20 @@ This is the demo code for [Deep Video Deblurring for Hand-held Cameras](http://w
 ## Train
 
 ### Prepare data
+
 - Download and unzip train videos to `dataset`, from this [link](http://www.cs.ubc.ca/labs/imager/tr/2017/DeepVideoDeblurring/DeepVideoDeblurring_Dataset.zip), or place your own train video frames under:
 	- input: `dataset/quantitative_datasets/[video_file_name]/input` 
 	- ground truth: `dataset/quantitative_datasets/[video_file_name]/GT`
 
 - Align frames in Matlab, by running ```preprocess/generateAllAlignments.m``` with parameters of ('..\dataset\quantitative_datasets','training')
 - Outputs should be stored at `data/training_real_all_nostab_[alignment]` under same structure
-- Argument the data in Matlab, by running ```preprocess/dataArgumentAndCrop.m```
-- Argumented and Croped training data should be stored at ```../data/training_augumented_all_nostab_[alignment]` under same structure
-- TODO: Read Argumented data images with torch, split them into 61 training videos and 10 testing videos, and convert images to torch7 files.
-- TODO: Train the net with converted data.
+- Argument the data in Matlab, by running ```preprocess/dataArgumentAndCrop.m```. You can specify param `alignments` in the script to choose an alignment method.
+- Argumented and Croped training data should be stored at ```data/training_augumented_all_nostab_[alignment]` under same structure
+
+### Train the net
+
+- Change directory to `train` and run script `bash trian.sh`. You can specify param `align` in the script to choose an alignment method.
+- Finally you can test your network by following Test section. You can try `train/train.ipynb` to get a quick impression of the training process or load your params and have a quick test.
 
 
 ### Citation
