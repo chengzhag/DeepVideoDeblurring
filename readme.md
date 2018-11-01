@@ -46,7 +46,7 @@ This is the demo code for [Deep Video Deblurring for Hand-held Cameras](http://w
 
 ### Train the net
 
-- Change directory to `train` and run script `bash trian.sh`. You can specify param `align` in the script to choose an alignment method.
+- Change directory to `train` and run script `bash trian.sh`. You can specify param `align` in the script to choose an alignment method. Hint: you can run `script -c 'bash train.sh' bash.log` to log the outputs. 
 - Finally you can test your network by following Test section. You can try `train/train.ipynb` to get a quick impression of the training process or load your params and have a quick test.
 
 
