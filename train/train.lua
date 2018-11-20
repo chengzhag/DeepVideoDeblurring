@@ -17,11 +17,19 @@ opt = lapp[[
     --batch_size            (default '64')               size of batch sampled from batch files (if is larger than size from batch files, use entire batch every iteration)
     --it_max                (default 80000)              max number of iterations
 
-    --model_param           (default 'param')            weight file
-    --bn_meanstd            (default 'bn_meanvar')       batch normalization file
-    --optimstate            (default 'optimstate')       state of optim.adam
+    --model_param           (default '')                 weight file
+    --bn_meanstd            (default '')                 batch normalization file
+    --optimstate            (default '')                 state of optim.adam
     --save_every            (default '500')              auto save every save_every iterations
-    --log                   (default '')                dir to save log
+    --log                   (default '')                 dir to save log
+    
+    --reset_lr              (default 0)                  reset lr to reset_lr instead of default or saved lr
+    --reset_state           (default 0)                  reset optim state
+    --decay_from            (default 24000)              decay learning rate from decay_from iterations
+    --decay_every           (default 8000)               decay learning rate every decay_every iteration
+
+    --overfit_batches       (default 0)                  overfit batch num for debuging
+    --overfit_out           (default '')                 overfit output on trainset
 ]]
     -- log_every             (default 10)                 log every log_every iterations
 
@@ -30,9 +38,9 @@ require("lfs")
 
 alignFolder = opt.data_root
 print(alignFolder)
-print(string.format('scanning videos from %s',alignFolder))
+print(string.format('Scanning videos from %s',alignFolder))
 videoNames = {}
-batchDirs = {}
+videoName2batchDirs = {}
 local iVideos = 0;
 local nBatches = 0;
 for videoName in lfs.dir(alignFolder) do
@@ -40,42 +48,73 @@ for videoName in lfs.dir(alignFolder) do
 --         print(videoName)
         iVideos = iVideos+1
         videoNames[iVideos] = videoName
-        batchDirs[videoName] = {};
+        videoName2batchDirs[videoName] = {};
         local videoFolder = paths.concat(alignFolder,videoName);
         for batchName in lfs.dir(videoFolder) do
             if batchName ~= "." and batchName ~= ".." then
-                table.insert(batchDirs[videoName],
+                table.insert(videoName2batchDirs[videoName],
                     paths.concat(videoFolder,batchName))
 --                 print(batchName)
             end
         end
-        table.sort(batchDirs[videoName])
-        nBatches = nBatches + #batchDirs[videoName]
+        table.sort(videoName2batchDirs[videoName])
+        nBatches = nBatches + #videoName2batchDirs[videoName]
     end
 end
 table.sort(videoNames)
 print(string.format('Found %d videos and %d batches',#videoNames,nBatches))
 
-
 -- split datasets (videoNames) into trainset and validset
-local trainsetSize = math.min(opt.trainset_size,#videoNames)
+local function getDirsFromNames(names)
+    local dirs = {}
+    for iName,name in ipairs(names) do
+        local dirsName = videoName2batchDirs[name]
+        for iDir,dir in ipairs(dirsName) do
+            table.insert(dirs,dir)
+        end
+    end
+    return dirs
+end
 
 math.randomseed(opt.seed) 
-local name2weight = {}
-for iVideo,videoName in ipairs(videoNames) do
-    name2weight[videoName] = math.random()
-end
-table.sort(videoNames,function(a,b) return name2weight[a]<name2weight[b] end)
-trainset={}
-validset={}
-for iVideo,videoName in ipairs(videoNames) do
-    if(iVideo<=trainsetSize) then
-        table.insert(trainset,videoName)
-    else
-        table.insert(validset,videoName)
+if opt.overfit_batches == 0 then
+    local trainsetSize = math.min(opt.trainset_size,#videoNames)
+
+    local name2weight = {}
+    for iVideo,videoName in ipairs(videoNames) do
+        name2weight[videoName] = math.random()
+    end
+    table.sort(videoNames,function(a,b) return name2weight[a]<name2weight[b] end)
+    trainsetNames={}
+    validsetNames={}
+    for iVideo,videoName in ipairs(videoNames) do
+        if(iVideo<=trainsetSize) then
+            table.insert(trainsetNames,videoName)
+        else
+            table.insert(validsetNames,videoName)
+        end
+    end
+    print(string.format('%d for trainset and %d for validset',#trainsetNames,#validsetNames))
+
+    trainsetDirs = getDirsFromNames(trainsetNames)
+    validsetDirs = getDirsFromNames(validsetNames)
+    table.sort(trainsetDirs)
+    table.sort(validsetDirs)
+    print(string.format('Split batches into %d for trainset and %d for validset',#trainsetDirs,#validsetDirs))
+else
+    print(string.format( "Overfitting %d batches",opt.overfit_batches ))
+    local datasetDirs = getDirsFromNames(videoNames)
+    trainsetDirs = {}
+    for iBatch = 1,opt.overfit_batches do
+        table.insert(trainsetDirs,datasetDirs[iBatch])
     end
 end
-print(string.format('Found %d trainsets and %d validsets',#trainset,#validset))
+
+local eampleBatchNum = math.min(10,opt.overfit_batches)
+print(string.format( "First %d batches example of %d trainset Batch:",eampleBatchNum,#trainsetDirs ))
+for iBatch = 1,eampleBatchNum do
+    print('\t'..trainsetDirs[iBatch])
+end
 
 
 -- load model
@@ -95,11 +134,11 @@ print("Model loaded")
 -- params setting
 max_intensity = opt.max_intensity
 batchSize = opt.batch_size
-decayFrom = 24000
-decayEvery = 8000
+decayFrom = opt.decay_from
+decayEvery = opt.decay_every
 decayRate = 0.5
-itMax = opt.it_max
 lrMin = 1e-6
+itMax = opt.it_max
 
 print(string.format( "Params setting: max_intensity = %f",max_intensity ))
 print(string.format( "                    batchSize = %d",batchSize ))
@@ -133,8 +172,10 @@ function loadParams()
             function()
                 local paramsSave = torch.load(paramsLoadDir)
                 local bn_meanvarSave = torch.load(bn_meanvarLoadDir)
-                optimstateSave = torch.load(optimstateLoadDir)
-
+                if reset_state==0 then
+                    optimstateSave = torch.load(optimstateLoadDir)
+                end
+                assert(params:nElement() == paramsSave:nElement(), string.format('%s: %d vs %d', 'loading parameters: dimension mismatch.', params:nElement(), paramsSave:nElement()))
                 params:copy(paramsSave)
                 local bn_mean, bn_std = table.unpack(bn_meanvarSave)
                 for k,v in pairs(net:findModules('nn.SpatialBatchNormalization')) do
@@ -147,7 +188,10 @@ function loadParams()
     end
     
     optimConfig = optimstateSave or {}
-    optimConfig.learningRate = optimConfig.learningRate or 0.005
+    optimConfig.learningRate = optimConfig.learningRate or 0.005 --default lr=0.005
+    if opt.reset_lr > 0 then
+        optimConfig.learningRate = opt.reset_lr
+    end
     optimConfig.weightDecay = optimConfig.weightDecay or 0
     optimConfig.beta1 = optimConfig.beta1 or 0.9
     optimConfig.beta2 = optimConfig.beta2 or 0.999
@@ -163,10 +207,9 @@ loadParams()
 
 -- load random batch sample
 matio = require 'matio'
-local function loadRandomBatchFrom(videoNames,batchSize)
-    local iVideo = math.random(#videoNames)
-    local iBatch = math.random(#batchDirs[videoNames[iVideo] ])
-    local sampleDir = batchDirs[videoNames[iVideo] ][iBatch]
+function loadRandomBatchFrom(batchDirs,batchSize)
+    local iBatch = math.random(#batchDirs)
+    local sampleDir = batchDirs[iBatch]
     local batchSample = matio.load(sampleDir)
 
     local batchInputRaw,batchGTRaw = batchSample.batchInputTorch, batchSample.batchGTTorch
@@ -188,58 +231,62 @@ local function loadRandomBatchFrom(videoNames,batchSize)
     return batchInput, batchGT
 end
 
+
+-- save params
+local function saveParams(it)
+    if paramsSaveDir ~= '' and bn_meanvarSaveDir ~= '' and optimstateSaveDir ~= '' then
+        local paramsSaveDir = paramsSaveDir..'_iteration_'..it..'.t7'
+        local bn_meanvarSaveDir = bn_meanvarSaveDir..'_iteration_'..it..'.t7'
+        local optimstateSaveDir = optimstateSaveDir..'_iteration_'..it..'.t7'
+        print(string.format(
+            "Saving params to: \nparamsSaveDir: %s \nbn_meanvarSaveDir: %s \noptimstateSaveDir: %s ", 
+            paramsSaveDir,bn_meanvarSaveDir,optimstateSaveDir))
+        torch.save(paramsSaveDir,params)
+        local bn_mean = {}
+        local bn_std = {}
+        for k,v in pairs(net:findModules('nn.SpatialBatchNormalization')) do
+            table.insert(bn_mean,v.running_mean)
+            table.insert(bn_std,v.running_var)
+        end
+        local bn_meanvar = {bn_mean,bn_std}
+        torch.save(bn_meanvarSaveDir,bn_meanvar)
+        torch.save(optimstateSaveDir,optimConfig)
+        print(optimConfig)
+    else
+        print('No dir to save!\n')
+    end
+end
+
+
 -- iteration funtion
 local function feval(params)
     gradParams:zero()
 
-    local batchInput, batchGT = loadRandomBatchFrom(trainset,batchSize)
+    local batchInput, batchGT = loadRandomBatchFrom(trainsetDirs,batchSize)
 
-    batchInput = batchInput:float():div(max_intensity):cuda()
-    batchGT = batchGT:float():div(max_intensity):cuda()
+    batchInput = batchInput:double():div(max_intensity):cuda()
+    batchGT = batchGT:double():div(max_intensity):cuda()
         
-    local outputs = net:forward(batchInput)
-    loss = criterion:forward(outputs, batchGT)
-    local dloss_doutputs = criterion:backward(outputs,batchGT)
-    net:backward(batchInput, dloss_doutputs)
+    local batchOutput = net:forward(batchInput)
+    loss = criterion:forward(batchOutput, batchGT)
+    local dloss_dbatchOutput = criterion:backward(batchOutput,batchGT)
+    net:backward(batchInput, dloss_dbatchOutput)
         
     return loss, gradParams
 end
 
 
--- save params
-local function saveParams(it)
-    local paramsSaveDir = paramsSaveDir..'_iteration_'..it..'.t7'
-    local bn_meanvarSaveDir = bn_meanvarSaveDir..'_iteration_'..it..'.t7'
-    local optimstateSaveDir = optimstateSaveDir..'_iteration_'..it..'.t7'
-    print(string.format(
-        "Saving params to: \nparamsSaveDir: %s \nbn_meanvarSaveDir: %s \noptimstateSaveDir: %s ", 
-        paramsSaveDir,bn_meanvarSaveDir,optimstateSaveDir))
-    torch.save(paramsSaveDir,params)
-    local bn_mean = {}
-    local bn_std = {}
-    for k,v in pairs(net:findModules('nn.SpatialBatchNormalization')) do
-        table.insert(bn_mean,v.running_mean)
-        table.insert(bn_std,v.running_var)
-    end
-    local bn_meanvar = {bn_mean,bn_std}
-    torch.save(bn_meanvarSaveDir,bn_meanvar)
-    torch.save(optimstateSaveDir,optimConfig)
-    print(optimConfig)
-end
-
-
+-- train
 -- Log results to files
 if opt.log ~= '' then
     print('logging to: '..opt.log)
     trainLogger = optim.Logger(opt.log)
     trainLogger:setNames{'loss'}
 end
-
--- train
 -- at least 12 GB video memory required for batch size 64
 math.randomseed(sys.clock()) 
-local tic = sys.clock()
 net:training() -- set train = true
+local tic = sys.clock()
 for it = itBegin,itMax do
     if it>=decayFrom and (it-decayFrom)%decayEvery==0 then
         optimConfig.learningRate = optimConfig.learningRate*decayRate
@@ -274,6 +321,60 @@ for it = itBegin,itMax do
     end
 end
 
+
+-- test on trainset for overfitting
+require 'image'
+if opt.overfit_batches > 0 then
+    print('Testing on trainset for overfitting')
+    local outImgSaveDir =  opt.overfit_out
+    local outputSaveDir = paths.concat(outImgSaveDir,'output')
+    local gtSaveDir = paths.concat(outImgSaveDir,'GT')
+    local inputSaveDir = paths.concat(outImgSaveDir,'input')
+    paths.mkdir(outputSaveDir)
+    paths.mkdir(gtSaveDir)
+    paths.mkdir(inputSaveDir)
+    
+    print(string.format("Saving test result to: %s",outImgSaveDir))
+    net:evaluate() -- get different loss?
+    local lossTest = 0
+    local maxLossTest = 0
+    local tic = sys.clock()
+    for iBatch,trainsetDir in ipairs(trainsetDirs) do
+        local batchSample = matio.load(trainsetDir)
+        local batchInput,batchGT = batchSample.batchInputTorch, batchSample.batchGTTorch
+        batchInput = batchInput:double():div(max_intensity):cuda()
+        batchGT = batchGT:double():div(max_intensity):cuda()
+
+        local batchOutput = net:forward(batchInput)
+        local loss = criterion:forward(batchOutput, batchGT)
+        maxLossTest = math.max(maxLossTest,loss)
+        lossTest = lossTest+loss
+
+        batchOutput:mul(max_intensity)
+        batchGT:mul(max_intensity)
+        batchInput = batchInput:contiguous():view(64,5,3,128,128)
+        batchInput:mul(max_intensity)
+        for iPatch = 1,batchOutput:size(1) do
+            imName = string.match(trainsetDir,".+/([^/]*)%.%w+$")
+            image.save(paths.concat(outputSaveDir,string.format('%s_%02d.jpg',imName,iPatch-1)), batchOutput[iPatch]:byte())
+            image.save(paths.concat(gtSaveDir,string.format('%s_%02d.jpg',imName,iPatch-1)), batchGT[iPatch]:byte())
+            image.save(paths.concat(inputSaveDir,string.format('%s_%02d.jpg',imName,iPatch-1)), batchInput[iPatch][3]:byte())
+        end
+
+        local toc = sys.clock()
+        speed = 1/(toc-tic)
+        timeLeft = (#trainsetDirs-iBatch)/speed
+        toc = tic
+        tic = sys.clock()
+        timeLeftMin = timeLeft/60
+        print(string.format(
+                'ba: %d/%d, loss: %f, spd: %.2f ba/s, left: %d h %.1f min',
+                iBatch,#trainsetDirs,loss,speed,timeLeftMin/60,timeLeftMin%60))
+
+    end
+    lossTest = lossTest/#trainsetDirs
+    print(string.format('Final test loss: %f, max test loss: %f',lossTest,maxLossTest))
+end
 
 
 
