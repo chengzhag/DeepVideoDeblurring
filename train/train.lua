@@ -22,16 +22,19 @@ opt = lapp[[
     --optimstate            (default '')                 state of optim.adam
     --save_every            (default '500')              auto save every save_every iterations
     --log                   (default '')                 dir to save log
-    
+    --log_every             (default 1)                  log every log_every iterations
+
     --reset_lr              (default 0)                  reset lr to reset_lr instead of default or saved lr
     --reset_state           (default 0)                  reset optim state
     --decay_from            (default 24000)              decay learning rate from decay_from iterations
     --decay_every           (default 8000)               decay learning rate every decay_every iteration
+    --decay_rate            (default 0.5)                decay learning rate
 
     --overfit_batches       (default 0)                  overfit batch num for debuging
+    --overfit_patches       (default 0)                  overfit patch num, valid if overfit_batches = 1
     --overfit_out           (default '')                 overfit output on trainset
 ]]
-    -- log_every             (default 10)                 log every log_every iterations
+    
 
 -- scan batches
 require("lfs")
@@ -63,6 +66,7 @@ for videoName in lfs.dir(alignFolder) do
 end
 table.sort(videoNames)
 print(string.format('Found %d videos and %d batches',#videoNames,nBatches))
+
 
 -- split datasets (videoNames) into trainset and validset
 local function getDirsFromNames(names)
@@ -117,6 +121,18 @@ for iBatch = 1,eampleBatchNum do
 end
 
 
+-- preload trainset if it's small
+trainsetBatches = {}
+if #trainsetDirs <= 100 then
+    matio = require 'matio'
+    print('Preloading '..#trainsetDirs..' trainset into memory')
+    for iBatch,trainsetDir in ipairs(trainsetDirs) do
+        table.insert(trainsetBatches, matio.load(trainsetDir))
+        print(iBatch..'/'..#trainsetDirs)
+    end
+end
+
+
 -- load model
 require 'cunn'
 require 'cutorch'
@@ -136,7 +152,7 @@ max_intensity = opt.max_intensity
 batchSize = opt.batch_size
 decayFrom = opt.decay_from
 decayEvery = opt.decay_every
-decayRate = 0.5
+decayRate = opt.decay_rate
 lrMin = 1e-6
 itMax = opt.it_max
 
@@ -172,7 +188,7 @@ function loadParams()
             function()
                 local paramsSave = torch.load(paramsLoadDir)
                 local bn_meanvarSave = torch.load(bn_meanvarLoadDir)
-                if reset_state==0 then
+                if opt.reset_state==0 then
                     optimstateSave = torch.load(optimstateLoadDir)
                 end
                 assert(params:nElement() == paramsSave:nElement(), string.format('%s: %d vs %d', 'loading parameters: dimension mismatch.', params:nElement(), paramsSave:nElement()))
@@ -206,11 +222,22 @@ loadParams()
 
 
 -- load random batch sample
+function copyBatch(batch)
+    local batchCopy = {}
+    batchCopy.batchInputTorch = batch.batchInputTorch:clone()
+    batchCopy.batchGTTorch = batch.batchGTTorch:clone()
+    return batchCopy
+end
 matio = require 'matio'
 function loadRandomBatchFrom(batchDirs,batchSize)
     local iBatch = math.random(#batchDirs)
-    local sampleDir = batchDirs[iBatch]
-    local batchSample = matio.load(sampleDir)
+    local batchSample = nil
+    if type(batchDirs[1]) == 'string' then
+        local sampleDir = batchDirs[iBatch]
+        batchSample = matio.load(sampleDir)
+    else
+        batchSample = copyBatch(batchDirs[iBatch])
+    end
 
     local batchInputRaw,batchGTRaw = batchSample.batchInputTorch, batchSample.batchGTTorch
 
@@ -258,15 +285,27 @@ local function saveParams(it)
 end
 
 
+-- preload batch if overfit_batches = 1
+if opt.overfit_batches == 1 then
+    batchInput, batchGT = loadRandomBatchFrom(trainsetDirs,batchSize)
+    if opt.overfit_batches == 1 and opt.overfit_patches > 0 then
+        batchInput = batchInput[{{1,opt.overfit_patches},{},{},{}}]
+        batchGT = batchGT[{{1,opt.overfit_patches},{},{},{}}]
+    end
+    batchInput = batchInput:double():div(max_intensity):cuda()
+    batchGT = batchGT:double():div(max_intensity):cuda()
+end
 -- iteration funtion
 local function feval(params)
     gradParams:zero()
-
-    local batchInput, batchGT = loadRandomBatchFrom(trainsetDirs,batchSize)
-
+    if #trainsetBatches > 0 then
+        batchInput, batchGT = loadRandomBatchFrom(trainsetBatches,batchSize)
+    else
+        batchInput, batchGT = loadRandomBatchFrom(trainsetDirs,batchSize)
+    end
     batchInput = batchInput:double():div(max_intensity):cuda()
     batchGT = batchGT:double():div(max_intensity):cuda()
-        
+
     local batchOutput = net:forward(batchInput)
     loss = criterion:forward(batchOutput, batchGT)
     local dloss_dbatchOutput = criterion:backward(batchOutput,batchGT)
@@ -279,6 +318,7 @@ end
 -- train
 -- Log results to files
 if opt.log ~= '' then
+    paths.mkdir(string.match(opt.log, "(.+)/[^/]*%.%w+$"))
     print('logging to: '..opt.log)
     trainLogger = optim.Logger(opt.log)
     trainLogger:setNames{'loss'}
@@ -310,7 +350,7 @@ for it = itBegin,itMax do
             it,loss,optimConfig.learningRate,speed,avgSpeed,timeLeftMin/60,timeLeftMin%60))
     
     -- update logger/plot
-    if trainLogger then
+    if trainLogger and it%opt.log_every == 0 then
         trainLogger:add{loss}
         trainLogger:style{'-'}
         trainLogger:plot()
@@ -333,15 +373,24 @@ if opt.overfit_batches > 0 then
     paths.mkdir(outputSaveDir)
     paths.mkdir(gtSaveDir)
     paths.mkdir(inputSaveDir)
-    
+
     print(string.format("Saving test result to: %s",outImgSaveDir))
     net:evaluate() -- get different loss?
     local lossTest = 0
     local maxLossTest = 0
     local tic = sys.clock()
     for iBatch,trainsetDir in ipairs(trainsetDirs) do
-        local batchSample = matio.load(trainsetDir)
+        local batchSample = nil
+        if #trainsetBatches > 0 then
+            batchSample = copyBatch(trainsetBatches[iBatch])
+        else
+            batchSample = matio.load(trainsetDir)
+        end
         local batchInput,batchGT = batchSample.batchInputTorch, batchSample.batchGTTorch
+        if opt.overfit_batches == 1 and opt.overfit_patches > 0 then
+            batchInput = batchInput[{{1,opt.overfit_patches},{},{},{}}]
+            batchGT = batchGT[{{1,opt.overfit_patches},{},{},{}}]
+        end
         batchInput = batchInput:double():div(max_intensity):cuda()
         batchGT = batchGT:double():div(max_intensity):cuda()
 
@@ -352,7 +401,7 @@ if opt.overfit_batches > 0 then
 
         batchOutput:mul(max_intensity)
         batchGT:mul(max_intensity)
-        batchInput = batchInput:contiguous():view(64,5,3,128,128)
+        batchInput = batchInput:contiguous():view(batchInput:size(1),5,3,128,128)
         batchInput:mul(max_intensity)
         for iPatch = 1,batchOutput:size(1) do
             imName = string.match(trainsetDir,".+/([^/]*)%.%w+$")
