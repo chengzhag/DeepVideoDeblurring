@@ -12,7 +12,9 @@ opt = lapp[[
     --num_channels          (default 3)                  rgb input
     --max_intensity         (default 255)                maximum intensity of input
 
-    --data_root             (default 'data/training')    folder for traning data
+    --data_root             (default '')                 folder for datasets
+    --data_trainset         (default '')                 folder for transet data
+    --data_validset         (default '')                 folder for validset data
     --trainset_size         (default '61')               size of trainset (if is larger than dataset, use all dataset as trainset)
     --batch_size            (default '64')               size of batch sampled from batch files (if is larger than size from batch files, use entire batch every iteration)
     --it_max                (default 80000)              max number of iterations
@@ -38,86 +40,124 @@ opt = lapp[[
 
 -- scan batches
 require("lfs")
+trainsetDirs = {}
+validsetDirs = {}
+if #opt.data_root > 0 then
 
-alignFolder = opt.data_root
-print(alignFolder)
-print(string.format('Scanning videos from %s',alignFolder))
-videoNames = {}
-videoName2batchDirs = {}
-local iVideos = 0;
-local nBatches = 0;
-for videoName in lfs.dir(alignFolder) do
-    if videoName ~= "." and videoName ~= ".." then
---         print(videoName)
-        iVideos = iVideos+1
-        videoNames[iVideos] = videoName
-        videoName2batchDirs[videoName] = {};
-        local videoFolder = paths.concat(alignFolder,videoName);
-        for batchName in lfs.dir(videoFolder) do
-            if batchName ~= "." and batchName ~= ".." then
-                table.insert(videoName2batchDirs[videoName],
-                    paths.concat(videoFolder,batchName))
---                 print(batchName)
+    alignFolder = opt.data_root
+    print(string.format('Scanning videos from %s',alignFolder))
+    videoNames = {}
+    videoName2batchDirs = {}
+    local iVideos = 0;
+    local nBatches = 0;
+    for videoName in lfs.dir(alignFolder) do
+        if videoName ~= "." and videoName ~= ".." then
+    --         print(videoName)
+            iVideos = iVideos+1
+            videoNames[iVideos] = videoName
+            videoName2batchDirs[videoName] = {};
+            local videoFolder = paths.concat(alignFolder,videoName);
+            for batchName in lfs.dir(videoFolder) do
+                if batchName ~= "." and batchName ~= ".." then
+                    table.insert(videoName2batchDirs[videoName],
+                        paths.concat(videoFolder,batchName))
+    --                 print(batchName)
+                end
+            end
+            table.sort(videoName2batchDirs[videoName])
+            nBatches = nBatches + #videoName2batchDirs[videoName]
+        end
+    end
+    table.sort(videoNames)
+    print(string.format('Found %d videos and %d batches',#videoNames,nBatches))
+
+    -- split datasets (videoNames) into trainset and validset
+    local function getDirsFromNames(names)
+        local dirs = {}
+        for iName,name in ipairs(names) do
+            local dirsName = videoName2batchDirs[name]
+            for iDir,dir in ipairs(dirsName) do
+                table.insert(dirs,dir)
             end
         end
-        table.sort(videoName2batchDirs[videoName])
-        nBatches = nBatches + #videoName2batchDirs[videoName]
+        return dirs
     end
-end
-table.sort(videoNames)
-print(string.format('Found %d videos and %d batches',#videoNames,nBatches))
 
+    math.randomseed(opt.seed) 
+    if opt.overfit_batches == 0 then
+        local trainsetSize = math.min(opt.trainset_size,#videoNames)
 
--- split datasets (videoNames) into trainset and validset
-local function getDirsFromNames(names)
-    local dirs = {}
-    for iName,name in ipairs(names) do
-        local dirsName = videoName2batchDirs[name]
-        for iDir,dir in ipairs(dirsName) do
-            table.insert(dirs,dir)
+        local name2weight = {}
+        for iVideo,videoName in ipairs(videoNames) do
+            name2weight[videoName] = math.random()
+        end
+        table.sort(videoNames,function(a,b) return name2weight[a]<name2weight[b] end)
+        trainsetNames={}
+        validsetNames={}
+        for iVideo,videoName in ipairs(videoNames) do
+            if(iVideo<=trainsetSize) then
+                table.insert(trainsetNames,videoName)
+            else
+                table.insert(validsetNames,videoName)
+            end
+        end
+        print(string.format('%d for trainset and %d for validset',#trainsetNames,#validsetNames))
+
+        trainsetDirs = getDirsFromNames(trainsetNames)
+        validsetDirs = getDirsFromNames(validsetNames)
+        table.sort(trainsetDirs)
+        table.sort(validsetDirs)
+        print(string.format('Split batches into %d for trainset and %d for validset',#trainsetDirs,#validsetDirs))
+    else
+        print(string.format( "Overfitting %d batches",opt.overfit_batches ))
+        local datasetDirs = getDirsFromNames(videoNames)
+        for iBatch = 1,opt.overfit_batches do
+            table.insert(trainsetDirs,datasetDirs[iBatch])
         end
     end
-    return dirs
-end
 
-math.randomseed(opt.seed) 
-if opt.overfit_batches == 0 then
-    local trainsetSize = math.min(opt.trainset_size,#videoNames)
+elseif #opt.data_trainset > 0 and #opt.data_validset > 0 then
 
-    local name2weight = {}
-    for iVideo,videoName in ipairs(videoNames) do
-        name2weight[videoName] = math.random()
-    end
-    table.sort(videoNames,function(a,b) return name2weight[a]<name2weight[b] end)
-    trainsetNames={}
-    validsetNames={}
-    for iVideo,videoName in ipairs(videoNames) do
-        if(iVideo<=trainsetSize) then
-            table.insert(trainsetNames,videoName)
-        else
-            table.insert(validsetNames,videoName)
+    trainsetFolder = opt.data_trainset
+    print(string.format('Scanning trainset batches from %s',trainsetFolder))
+    for batchDir in lfs.dir(trainsetFolder) do
+        if batchDir ~= "." and batchDir ~= ".." then
+            table.insert(trainsetDirs,paths.concat(trainsetFolder,batchDir));
         end
     end
-    print(string.format('%d for trainset and %d for validset',#trainsetNames,#validsetNames))
-
-    trainsetDirs = getDirsFromNames(trainsetNames)
-    validsetDirs = getDirsFromNames(validsetNames)
     table.sort(trainsetDirs)
+    print(string.format('Found %d trainset batches',#trainsetDirs))
+
+    validsetFolder = opt.data_validset
+    print(string.format('Scanning validset batches from %s',validsetFolder))
+    
+    for batchDir in lfs.dir(validsetFolder) do
+        if batchDir ~= "." and batchDir ~= ".." then
+            table.insert(validsetDirs,paths.concat(validsetFolder,batchDir));
+        end
+    end
     table.sort(validsetDirs)
-    print(string.format('Split batches into %d for trainset and %d for validset',#trainsetDirs,#validsetDirs))
-else
-    print(string.format( "Overfitting %d batches",opt.overfit_batches ))
-    local datasetDirs = getDirsFromNames(videoNames)
-    trainsetDirs = {}
-    for iBatch = 1,opt.overfit_batches do
-        table.insert(trainsetDirs,datasetDirs[iBatch])
+    print(string.format('Found %d validset batches',#validsetDirs))
+
+    if opt.overfit_batches > 0 then
+        print(string.format( "Overfitting %d batches",opt.overfit_batches ))
+        trainsetDirsTemp = {}
+        for iBatch = 1,opt.overfit_batches do
+            table.insert(trainsetDirsTemp,trainsetDirs[iBatch])
+        end
+        trainsetDirs = trainsetDirsTemp
     end
 end
 
-local eampleBatchNum = math.min(10,opt.overfit_batches)
+local eampleBatchNum = math.min(10,#trainsetDirs)
 print(string.format( "First %d batches example of %d trainset Batch:",eampleBatchNum,#trainsetDirs ))
 for iBatch = 1,eampleBatchNum do
     print('\t'..trainsetDirs[iBatch])
+end
+local eampleBatchNum = math.min(10,#validsetDirs)
+print(string.format( "First %d batches example of %d validset Batch:",eampleBatchNum,#validsetDirs ))
+for iBatch = 1,eampleBatchNum do
+    print('\t'..validsetDirs[iBatch])
 end
 
 
@@ -327,6 +367,7 @@ end
 math.randomseed(sys.clock()) 
 net:training() -- set train = true
 local tic = sys.clock()
+lossAvg = 0;
 for it = itBegin,itMax do
     if it>=decayFrom and (it-decayFrom)%decayEvery==0 then
         optimConfig.learningRate = optimConfig.learningRate*decayRate
@@ -348,12 +389,14 @@ for it = itBegin,itMax do
     print(string.format(
             'it: %d, loss: %f, lr: %f, spd: %.2f it/s, avgSpd: %.2f it/s, left: %d h %.1f min',
             it,loss,optimConfig.learningRate,speed,avgSpeed,timeLeftMin/60,timeLeftMin%60))
-    
+    lossAvg = lossAvg + loss
     -- update logger/plot
     if trainLogger and it%opt.log_every == 0 then
-        trainLogger:add{loss}
+        lossAvg = lossAvg/opt.log_every
+        trainLogger:add{lossAvg}
         trainLogger:style{'-'}
         trainLogger:plot()
+        lossAvg = 0
     end
 
     if it%opt.save_every == 0 or it == itMax then 
