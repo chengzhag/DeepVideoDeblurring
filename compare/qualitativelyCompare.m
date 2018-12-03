@@ -14,11 +14,10 @@ nAlignment = length(aligns);
 % list = dir(fullfile(root,aligns{1},['*',fileExt]));
 % videoNames = {list.name};
 
-videoFolders = {'..\dataset\qualitative_datasets' ...
-    '..\outImg\1018_model2_symskip_nngraph2_deeper_OF_real' ...
-    '..\outImg\1018_model2_symskip_nngraph2_deeper_homography_real' ...
-    '..\outImg\1018_model2_symskip_nngraph2_deeper_nowarp_real'};
-saveImg2 = 'failure';
+videoFolders = {'../dataset/original_qualitative_datasets' ...
+    '../outImg/1108_model2_symskip_nngraph2_deeper_nowarp_real' ...
+    '../outImg/1130_model2_symskip_nngraph2_deeper_nowarp_real_iteration_80000'};
+saveImg2 = '1130_compare';
 list = dir(videoFolders{2});
 list = list([list.isdir]);
 list = list(3:end);
@@ -58,13 +57,15 @@ while 1
     nDone = 0;
     qUpdateWaitbar = parallel.pool.DataQueue;
     lUpdateWaitbar = qUpdateWaitbar.afterEach(@(progress) updateWaitbar(progress));
-    parfor iAlign = 1:length(aligns)
-        message = ['Reading video ',aligns{iAlign},'\\',videoName,'...'];
-        disp(message);
-        % Allocate memory
-        vf = zeros(height,width,3,nFrames,'uint8');
-        % Read video
-        if strcmp(fileExt,'.mp4')
+    
+    
+    
+    if strcmp(fileExt,'.mp4')
+        nIm = length(aligns);
+        parfor iAlign = 1:length(aligns)
+            message = ['Reading video ',aligns{iAlign},'\\',videoName,'...'];
+            disp(message);
+            vf = zeros(height,width,3,nFrames,'uint8');
             video = VideoReader(fullfile(root,aligns{iAlign},videoName));
             for iFrame = 1:nFrames
                 if hasFrame(video)
@@ -72,23 +73,33 @@ while 1
                 end
                 qUpdateWaitbar.send(1/nFrames);
             end
-        elseif strcmp(fileExt,'.jpg')
-            imageFolder = videoFolders{iAlign};
-            if iAlign == 1
+            videoFrames{iAlign} = vf;
+        end
+    elseif strcmp(fileExt,'.jpg')
+        nIm = length(videoFolders);
+        parfor iFolder = 1:length(videoFolders)
+            message = ['Reading video ',videoFolders{iFolder},'\\',videoName,'...'];
+            disp(message);
+            vf = zeros(height,width,3,nFrames,'uint8');
+            imageFolder = videoFolders{iFolder};
+            if iFolder == 1
                 frameFolder = fullfile(imageFolder,videoName,'input');
             else
                 frameFolder = fullfile(imageFolder,videoName);
             end
             
-            for iFrame = 1:nFrames
-                frameDir = fullfile(frameFolder,frameNames{iFrame});
+            videoFrameList = dir(fullfile(frameFolder,['*',fileExt]));
+            videoFrameNames = {videoFrameList.name};
+            videoNframes = length(videoFrameNames);
+            for iFrame = 1:videoNframes
+                frameDir = fullfile(frameFolder,videoFrameNames{iFrame});
                 if exist(frameDir,'file')
                     vf(:,:,:,iFrame) = imread(frameDir);
                 end
                 qUpdateWaitbar.send(1/nFrames);
             end
+            videoFrames{iFolder} = vf;
         end
-        videoFrames{iAlign} = vf;
     end
     delete(processBar)
     
@@ -99,9 +110,9 @@ while 1
     close all;
     fi = figure('Name',videoName);
     while 1
-        montageFrames = cell(1,length(aligns));
-        for iAlign = 1:length(aligns)
-            montageFrames{iAlign} = videoFrames{iAlign}(:,:,:,iFrame);
+        montageFrames = cell(1,nIm);
+        for iIm = 1:nIm
+            montageFrames{iIm} = videoFrames{iIm}(:,:,:,iFrame);
         end
         figure(fi);
         montage(montageFrames);

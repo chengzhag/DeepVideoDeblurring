@@ -4,7 +4,9 @@ ALIGNMENT=("_nowarp") # "_OF" "_homography")
 
 MODEL="model2_symskip_nngraph2_deeper"
 METHOD=""
-DATE="1029"
+DATE="1130"
+itFix='_iteration_80000'
+FNFix=''
 for align in ${ALIGNMENT[@]}
 # for((i=0;i<${#ALIGNMENT[@]};i++))
 do
@@ -14,7 +16,7 @@ do
     REALSET_ALIGNS=(${REALSET_ALIGNS[@]} "data/testing_real_all_nostab"${align})
     FNREAL_ALIGNS=(${FNREAL_ALIGNS[@]} ${FN}"_real")
 done
-GPUID=2
+GPUID=0
 EPOCHTEST=400
 
 export CUDA_VISIBLE_DEVICES=$GPUID
@@ -32,9 +34,9 @@ do
         echo 'REALSET='${REALSET}
         echo 'FNREAL='${FNREAL}
         th inference.lua -g $GPUID --model $MODEL --data_root $REALSET/$subset \
-        --model_param logs/$FN/param_epoch_$EPOCHTEST.t7 \
-        --bn_meanstd logs/$FN/bn_meanvar_epoch_$EPOCHTEST.t7 \
-        --saveDir outImg/$FNREAL/$subset \
+        --model_param logs/$FN$FNFix/param_epoch_$EPOCHTEST$itFix.t7 \
+        --bn_meanstd logs/$FN$FNFix/bn_meanvar_epoch_$EPOCHTEST$itFix.t7 \
+        --saveDir outImg/$FNREAL$FNFix$itFix/$subset \
         --start_id 1 --n 100 --patchbypatch 1 --patch_size 256
     done
 done
