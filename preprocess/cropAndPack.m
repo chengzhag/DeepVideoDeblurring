@@ -7,9 +7,9 @@ close all
 global batchSize cropWidth widthNeighbor
 global frameExt nArguments
 alignments = {'_nowarp'};%,'_OF','_homography'};
-inputDir = '../data';
+inputDir = '~/projects/DeepVideoDeblurring/data';
 inputFolderPrefix = 'training_augumented_uncroped_all_nostab';
-saveDir = 'E:\projects\DeepVideoDeblurring\data';
+saveDir = '../data';
 saveFolderPrefixTrain = 'training_augumented_croped_all_nostab';
 saveFolderPrefixValid = 'validating_augumented_croped_all_nostab';
 frameExt = '.jpg';

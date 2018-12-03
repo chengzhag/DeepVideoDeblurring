@@ -3,7 +3,7 @@ require 'xlua'
 opt = lapp[[
     --seed                  (default 251)                rand seed
 
-    --model                 (default 'model')            model name
+    --model                 (default '')                 model name
     --model_param_load      (default '')                 weight file to load
     --bn_meanstd_load       (default '')                 batch normalization file to load
     --optimstate_load       (default '')                 state of optim.adam to load
@@ -15,14 +15,14 @@ opt = lapp[[
     --data_root             (default '')                 folder for datasets
     --data_trainset         (default '')                 folder for transet data
     --data_validset         (default '')                 folder for validset data
-    --trainset_size         (default '61')               size of trainset (if is larger than dataset, use all dataset as trainset)
-    --batch_size            (default '64')               size of batch sampled from batch files (if is larger than size from batch files, use entire batch every iteration)
+    --trainset_size         (default 61)                 size of trainset (if is larger than dataset, use all dataset as trainset)
+    --batch_size            (default 64)                 size of batch sampled from batch files (if is larger than size from batch files, use entire batch every iteration)
     --it_max                (default 80000)              max number of iterations
 
     --model_param           (default '')                 weight file
     --bn_meanstd            (default '')                 batch normalization file
     --optimstate            (default '')                 state of optim.adam
-    --save_every            (default '500')              auto save every save_every iterations
+    --save_every            (default 500)                auto save every save_every iterations
     --log                   (default '')                 dir to save log
     --log_every             (default 1)                  log every log_every iterations
 
@@ -335,6 +335,8 @@ if opt.overfit_batches == 1 then
     batchInput = batchInput:double():div(max_intensity):cuda()
     batchGT = batchGT:double():div(max_intensity):cuda()
 end
+
+
 -- iteration funtion
 local function feval(params)
     gradParams:zero()

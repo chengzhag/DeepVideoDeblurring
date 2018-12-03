@@ -13,3 +13,6 @@ results/*
 
 # 参数
 logs/*
+
+# IDE
+.idea/*

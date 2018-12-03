@@ -14,7 +14,7 @@ saveDir = '../data';
 saveFolderPrefix = 'training_augumented_uncroped_all_nostab';
 frameExt = '.jpg';
 argumentZoom = {1/4, 1/3, 1/2, 1};
-nFramesAll = 6708
+nFramesAll = 6708;
 
 %% Scan videos
 inputFolders = {};
