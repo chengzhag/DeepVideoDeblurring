@@ -117,7 +117,6 @@ gpu_options = tf.GPUOptions(allow_growth=True)
 sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 saver = tf.train.Saver()
 if args.ckp_dir_load != '':
-    loadDir = os.path.join(args.ckp_dir_load, 'checkpoints')
     loadDir = tf.train.latest_checkpoint(args.ckp_dir_load)
     try:
         print('Loading params from: ' + loadDir)
@@ -128,7 +127,7 @@ if args.ckp_dir_load != '':
 else:
     sess.run(tf.global_variables_initializer())
 
-if args.reset_lr != None:
+if args.reset_lr is not None:
     learningRateT.load(args.reset_lr, sess)
 
 print('Learning rate = %f' % sess.run(learningRateT))
