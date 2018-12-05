@@ -157,8 +157,8 @@ export CUDA_VISIBLE_DEVICES=$GPUID
 # train from the beginning #
 ############################
 rootDir='../'
-date='1130'
-dateLoad='1108'
+date='1205'
+dateLoad='1205'
 itLoadFix=''
 align="_nowarp"
 modelName='model2_symskip_nngraph2_deeper'
@@ -166,7 +166,7 @@ epochTest=400 #don't know what this means
 
 trainsetFolder="${rootDir}data/training_augumented_croped_all_nostab${align}"
 validsetFolder="${rootDir}data/validating_augumented_croped_all_nostab${align}"
-modelDir="${rootDir}models/${modelName}.lua"
+modelDir="${rootDir}models/${modelName}.py"
 paramLoadFolder="${rootDir}logs/${dateLoad}_${modelName}${align}"
 paramSaveFolder="${rootDir}logs/${date}_${modelName}${align}"
 
@@ -174,10 +174,10 @@ python train.py \
 --model ${modelDir} \
 --data_trainset ${trainsetFolder} \
 --batch_size 64 \
---save_every 1000 \
---model_param "${paramSaveFolder}/param_epoch_${epochTest}" \
---bn_meanstd "${paramSaveFolder}/bn_meanvar_epoch_${epochTest}" \
---optimstate "${paramSaveFolder}/optimstate_epoch_${epochTest}" \
---log "${paramSaveFolder}/train.log" \
---log_every 20 \
+--save_every 500 \
+--ckp_dir_load ${paramLoadFolder} \
+--ckp_dir ${paramSaveFolder} \
+--log "${paramSaveFolder}/logs" \
+--log_every 30 \
+
 
