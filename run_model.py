@@ -1,7 +1,11 @@
 import argparse
 import os
 import tensorflow as tf
-
+import math
+import scipy.misc
+import numpy as np
+import importlib
+import models.model as model
 
 def parseArgs():
     parser = argparse.ArgumentParser()
@@ -26,41 +30,25 @@ def parseArgs():
     parser.add_argument('--decay_every', type=int, default=8000, help='decay learning rate every decay_every iteration')
     parser.add_argument('--decay_rate', type=int, default=0.5, help='decay learning rate')
 
+    parser.add_argument('--data_testset', type=str, default=None, help='folder for testset data')
+    parser.add_argument('--output_dir', type=str, default=None, help='folder to output test results')
+
     return parser.parse_args()
 
 
 def scanSetFolder(folder):
-    print('Scanning trainset batches from %s' % folder)
-    dirs = os.listdir(folder)
-    dirs = [os.path.join(folder, dir) for dir in dirs]
-    print('Found %d trainset batches' % len(dirs))
-    return dirs
+    names = os.listdir(folder)
+    dirs = [os.path.join(folder, name) for name in names]
+    return dirs, names
 
 
-def showBatchDirExamples(dirs):
+def showDirExamples(dirs):
     num = min(10, len(dirs))
-    print("First %d batches example of %d trainset Batch:" % (num, len(dirs)))
+    print("First %d dir examples of %d dirs:" % (num, len(dirs)))
     for i in range(num):
         print('\t' + dirs[i])
 
-
-def main(_):
-    args = parseArgs()
-
-    trainsetDirs = []
-    if args.data_trainset is not None:
-        trainsetDirs = scanSetFolder(args.data_trainset)
-        showBatchDirExamples(trainsetDirs)
-
-    validsetDirs = []
-    if args.data_validset is not None:
-        validsetDirs = scanSetFolder(args.data_validset)
-        showBatchDirExamples(validsetDirs)
-
-    # load model
-    import importlib
-    import models.model as model
-
+def loadModel(args):
     modelDir = args.model
     print("Loading model %s" % modelDir)
     specImport = importlib.util.spec_from_file_location('createFcn', modelDir)
@@ -70,6 +58,7 @@ def main(_):
     print("Model loaded")
 
     if args.ckp_dir is not None:
+        print("Loading params from %s" % args.ckp_dir)
         try:
             deblur.load(args.ckp_dir)
         except:
@@ -80,6 +69,18 @@ def main(_):
             deblur.load(args.ckp_dir_load)
         except:
             print('No checkpoint or incompatible checkpoint in ckp_dir_load!')
+
+    return deblur
+
+def train(args):
+    # scan dataset
+    print('Scanning trainset files from %s' % args.data_trainset)
+    trainsetDirs, _ = scanSetFolder(args.data_trainset)
+    print('Found %d trainset files' % len(trainsetDirs))
+    showDirExamples(trainsetDirs)
+
+    # load model
+    deblur = loadModel(args)
 
     # train
     deblur.train(
@@ -96,8 +97,70 @@ def main(_):
         lr=args.reset_lr
     )
 
-    # test
-    # deblur.showRandomBatchTest(trainsetDirs)
+def valid(args):
+    print('Scanning validset files from %s' % args.data_validset)
+    validsetDirs, _ = scanSetFolder(args.data_validset)
+    print('Found %d validset files' % len(validsetDirs))
+    showDirExamples(validsetDirs)
+    pass
+
+def test(args):
+    # scan dataset
+    print('Scanning testset videos from %s' % args.data_trainset)
+    videoDirs, videoNames = scanSetFolder(args.data_testset)
+    print('Found %d testset videos' % len(videoDirs))
+    showDirExamples(videoDirs)
+
+    # load model
+    deblur = loadModel(args)
+
+    nAdjFrame = 5
+    maxIntensity = 255
+    for videoDir,videoName in zip(videoDirs,videoNames):
+        outputFolder = os.path.join(args.output_dir, videoName)
+        if not os.path.exists(outputFolder):
+            os.makedirs(outputFolder)
+        print('Scanning frames from ' + videoDir)
+        frameNames = os.listdir(os.path.join(videoDir,'image_0'))
+        for iFrame, frameName in enumerate(frameNames):
+            adjFrames = []
+            for iAdjFrame in range(nAdjFrame):
+                iAdjFrameFolder = 'image_%d' % (iAdjFrame-math.floor(nAdjFrame/2))
+                frameDir = os.path.join(videoDir, iAdjFrameFolder, frameName)
+                frameInput = scipy.misc.imread(frameDir)
+                adjFrames.append(frameInput)
+            input = np.concatenate(adjFrames, axis=-1)
+            inputH,inputW,inputC = input.shape
+            inputPadH = 8 * math.ceil(inputH / 8)
+            inputPadW = 8 * math.ceil(inputW / 8)
+            inputPad = np.pad(
+                input,
+                ((0,inputPadH-inputH),(0,inputPadW-inputW),(0,0)),
+                'edge'
+            )
+            inputPad = inputPad.astype(np.float32)/maxIntensity
+            inputPad = np.expand_dims(inputPad, 0)
+            # print(input.shape)
+            # print(inputPad.shape)
+            outputPad = deblur.predictIm(inputPad)
+            # print(outputPad.shape)
+            output = outputPad[0,:inputH,:inputW,:]
+            # print(output.shape)
+            # deblur.showBatchIm(outputPad)
+            scipy.misc.imsave(os.path.join(outputFolder, frameName), output)
+            print('%d / %d' % (iFrame, len(frameNames)))
+
+
+
+def main(_):
+    args = parseArgs()
+
+    if args.data_trainset is not None:
+        train(args)
+    elif args.data_validset is not None:
+        valid(args)
+    elif args.data_testset is not None:
+        test(args)
 
 
 if __name__ == '__main__':

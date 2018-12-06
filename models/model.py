@@ -11,8 +11,8 @@ class Deblur(object):
         self.maxIntensity = maxIntensity
 
         tf.reset_default_graph()
-        self.inputPh = tf.placeholder(tf.float32, shape=(None, 128, 128, 15), name='input')
-        self.gtPh = tf.placeholder(tf.float32, shape=(None, 128, 128, 3), name='gt')
+        self.inputPh = tf.placeholder(tf.float32, shape=(None, None, None, 15), name='input')
+        self.gtPh = tf.placeholder(tf.float32, shape=(None, None, None, 3), name='gt')
         self.trainingPh = tf.placeholder(tf.bool, shape=(), name='training')
         self.learningRatePh = tf.placeholder(tf.float32, shape=(), name='learningRate')
         self.learningRateT = tf.Variable(0.005, trainable=False, dtype=tf.float32)
@@ -141,12 +141,12 @@ class Deblur(object):
                 else:
                     print('Use param --ckp_dir to specify path to save!')
 
-    def showRandomBatchTest(self, batchDirs):
-        def showBatchIm(batch, i=0):
-            im = batch[i, :, :, :]
-            plt.imshow(im)
-            plt.show()
+    def showBatchIm(self, batch, i=0):
+        im = batch[i, :, :, :]
+        plt.imshow(im)
+        plt.show()
 
+    def showRandomBatchTest(self, batchDirs):
         batchInput, batchGT = self.loadRandomBatchFrom(batchDirs)
         inputIm = batchInput[:, :, :, 6:9]
         showBatchIm(inputIm)
@@ -155,6 +155,14 @@ class Deblur(object):
         batchOutput, batchLoss = self.testBatch(batchInput, batchGT)
         print('loss = %f' % batchLoss)
         showBatchIm(batchOutput)
+
+    def predictIm(self, im, patchbypatch=False):
+        if not patchbypatch:
+            return self.predictBatch(im)
+        else:
+            pass
+
+
 
     def predictBatch(self, batchInput):
         batchOutput = self.sess.run(
