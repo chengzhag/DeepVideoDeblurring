@@ -4,27 +4,24 @@ clear
 close all
 
 %% Parameters
-global nAlignments nVideos processBar batchMB currSpeed;
-global batchSize cropWidth widthNeighbor;
+global batchSize cropWidth widthNeighbor
+global frameExt nArguments argumentZoom
 alignments = {'_nowarp'};%,'_OF','_homography'};
-nAlignments = length(alignments);
-inputDir = '../data';
-gtDir = '../dataset/quantitative_datasets';
+inputDir = '~/projects/DeepVideoDeblurring/data';
 inputFolderPrefix = 'training_real_all_nostab';
-breakpointFile = 'breakpoint_dataArgumentAndCrop.txt';
+gtDir = '~/projects/DeepVideoDeblurring/dataset/quantitative_datasets';
+
 saveDir = '../data';
-saveFolderPrefix = 'training_augumented_all_nostab';
+saveFolderPrefixTrain = 'training_augumented_croped_all_nostab';
+saveFolderPrefixValid = 'validating_augumented_croped_all_nostab';
 frameExt = '.jpg';
-argumentZoom = {1/4, 1/3, 1/2, 1};
 cropWidth = 128;
-nCrops = 10;
+nCrop = 10;
+nArguments = 2*4*4;
 widthNeighbor = 5;
 batchSize = 64;
-batchMB = batchSize*cropWidth*cropWidth*3*(widthNeighbor+1)/1e6;
 currSpeed = 0;
-global iBatch iPatch;
-iBatch = 0;
-iPatch = 1;
+argumentZoom = [1/4, 1/3, 1/2, 1];
 
 %% Scan videos
 inputFolders = {};
@@ -41,153 +38,133 @@ for inputFolder = inputFolders
     videoNames{end} = {videoNames{end}.name};
 end
 
-%% Prepare
-nVideos = length(videoNames{1});
-% batch make
-qPushPatch = parallel.pool.DataQueue;
-lPushPatch = qPushPatch.afterEach(@(params) pushPatch(params));
+validset = {'IMG_0030' 'IMG_0049' 'IMG_0021' '720p_240fps_2' 'IMG_0032' ...
+'IMG_0033' 'IMG_0031' 'IMG_0003' 'IMG_0039' 'IMG_0037'};% from git rep DeepVideoDeburring
 
-%% Argument and crop
-% for all alignments
-tic;
-for iAlignment = 1:nAlignments
+%% Generate batches
+% for iAlignment = 1:length(alignments)
+iAlignment=1
     alignment = alignments{iAlignment};
-    nVideos = length(videoNames{iAlignment});
-    saveAlignFolder = fullfile(saveDir,[saveFolderPrefix,alignment]);
+    
+    %% scan frames
+    trainset = setdiff(videoNames{iAlignment},validset);
+    frameDirs = scanFrames(inputFolders{iAlignment},gtDir,trainset);
+    
+    %% generate batches
+    saveAlignFolder = fullfile(saveDir,[saveFolderPrefixTrain,alignment]);
     checkDir(saveAlignFolder);
-    % for all videos
-    for iVideo = 1:nVideos
-        videoName = videoNames{iAlignment}{iVideo};
-        inputFrameNames = dir( ...
-            fullfile(inputFolders{iAlignment},videoName,'image_0',['*',frameExt]));
-        inputFrameNames = {inputFrameNames.name};
-        GTFrameNames = dir(fullfile(gtDir,videoName,'GT',['*',frameExt]));
-        GTFrameNames = {GTFrameNames.name};
-        nFrames = length(inputFrameNames);
-        
-        % check dir
-        saveVideoDir = fullfile(saveAlignFolder,videoName);
-        disp(saveVideoDir);
-        checkDir(saveVideoDir);
-        
-        % for all frames
-        for iFrame = 1:nFrames
-            frameName = inputFrameNames{iFrame};
-            
-            % argument
-            frameDir = fullfile(gtDir,videoName,'GT',GTFrameNames{iFrame});
-            disp(frameDir);
-            gt = imread(frameDir);
-            gtsArg = argument(gt,argumentZoom);
-            inputsArg = cell(1,widthNeighbor);
-            for iNeighbor1i = 1:widthNeighbor
-                iNeighbor = iNeighbor1i-ceil(widthNeighbor/2);
-                input = imread(fullfile( ...
-                    inputFolders{iAlignment}, ...
-                    videoName, ...
-                    ['image_',num2str(iNeighbor)], ...
-                    frameName));
-                inputsArg{iNeighbor1i} = argument(input,argumentZoom);
-            end
-            % argument - end
-            
-            % crop
-            nArguments = length(gtsArg);
-            for iArgument=1:nArguments
-                frames = inputsArg{1}{iArgument};
-                [h,w,~] = size(frames);
-                wRange = w-cropWidth+1;
-                hRange = h-cropWidth+1;
-                wStarts = randi(wRange,1,nCrops);
-                hStarts = randi(hRange,1,nCrops);
-                gt = gtsArg{iArgument};
-                for iCrop = 1:nCrops
-                    wStart = wStarts(iCrop);
-                    hStart = hStarts(iCrop);
-                    isHCrop = hStart:hStart+cropWidth-1;
-                    isWCrop = wStart:wStart+cropWidth-1;
+    generateBatches(frameDirs,saveAlignFolder,nCrop*length(frameDirs)/batchSize*nArguments)
+    
+    %% scan validset frames
+    frameDirs = scanFrames(inputFolders{iAlignment},gtDir,validset);
+    
+    %% generate validset batches
+    saveAlignFolder = fullfile(saveDir,[saveFolderPrefixValid,alignment]);
+    checkDir(saveAlignFolder);
+    generateBatches(frameDirs,saveAlignFolder,nCrop*length(frameDirs)/batchSize*nArguments)
+% end
 
-                    gtCrop = gt(isHCrop,isWCrop,:);
 
-                    % crop patchInput
-                    patchInput = zeros(cropWidth,cropWidth,3*widthNeighbor,'uint8');
-                    for iNeighbor1i = 1:widthNeighbor
-                        input = inputsArg{iNeighbor1i}{iArgument};
-                        inputCrop = input(isHCrop,isWCrop,:);
-                        patchInput(:,:,(iNeighbor1i-1)*3+1:(iNeighbor1i-1)*3+3) = inputCrop;
-                    end
-                    pushPatch(patchInput,gtCrop,saveVideoDir);
-                end
-            end
-            % crop - end
-            showProgress(1/nFrames);
+%% functions 
+
+function frameDirs = scanFrames(inputFolders,gtDir,videoNames)
+global frameExt widthNeighbor
+% for all videos
+disp('Scanning frames...');
+frameDirs = {};
+iFrameAll = 1;
+for iVideo = 1:length(videoNames)
+    videoName = videoNames{iVideo};
+    inputFrameFolder = fullfile(inputFolders,videoName);
+    inputFrameNames = dir(fullfile(inputFrameFolder,'image_0',['*',frameExt]));
+    inputFrameNames = {inputFrameNames.name};
+    GTFrameFolder = fullfile(gtDir,videoName,'GT');
+    GTFrameNames = dir(fullfile(GTFrameFolder,['*',frameExt]));
+    GTFrameNames = {GTFrameNames.name};
+    for iFrame = 1:length(inputFrameNames)
+        neighborDirs = cell(widthNeighbor,1);
+        for iNeighbor = 1:widthNeighbor
+            iFrameNeighbor = iNeighbor-ceil(widthNeighbor/2);
+            neighborDirs{iNeighbor} = [inputFrameFolder,'/',sprintf('image_%d',iFrameNeighbor),'/',inputFrameNames{iFrame}];
         end
-        % clear patch index -- start a new batch
-        iPatch = 1;
+        frameDirs{iFrameAll,1} = neighborDirs;
+        frameDirs{iFrameAll,2} = [GTFrameFolder,'/',GTFrameNames{iFrame}];
+        iFrameAll = iFrameAll+1;
     end
+    fprintf('Found %d frames, video %d/%d\n',iFrameAll-1,iVideo,length(videoNames))
 end
-%% Clean
-
-function imsArg = argument(im,argumentZoom)
-imsArg = cell(2*4*length(argumentZoom));
-iArg=1;
-% argument - zoom
-for zoom = argumentZoom
-    imArg = imresize(im, zoom{1});
-    % argument - flip
-    for iFlip = 1:2
-        % argument - rotate
-        for iRotate = 1:4
-            imsArg{iArg} = imArg;
-%             imshow(imArg);
-%             pause(0.1);
-            imArg = rot90(imArg);
-            iArg = iArg+1;
-        end
-        if iFlip == 2
-            break;
-        end
-        imArg = fliplr(imArg);
-    end
-end
+fprintf('Found %d frames\n',iFrameAll-1)
 end
 
-function showProgress(dProgress)
-global nAlignments nVideos currSpeed;
-persistent nVideoDone;
-if isempty(nVideoDone)
-    nVideoDone = 0;
+function generateBatches(frameDirs,saveFolder,nBatches)
+global batchSize cropWidth widthNeighbor argumentZoom
+% scan for breakpoint
+batchesDone = dir(fullfile(saveFolder,'*.mat'));
+iBatchStart = 1;
+if length(batchesDone) > 0
+    iBatchStart = sscanf(batchesDone(end).name,'batch_width%d_size%d_%05d.mat');
+    iBatchStart = iBatchStart(end)+2;
 end
-
-nVideoDone = nVideoDone+dProgress;
-x = nVideoDone/nAlignments/nVideos;
-ms = toc/x*(1-x)/60;
-hours = floor(ms/60);
-mins = mod(ms,60);
-fprintf('Generating... %.2f%%, %.2f MB/s, %d hours %.1f minutes left.', ...
-    x*100,currSpeed,hours,mins);
-end
-
-function pushPatch(patchInput,patchGT,saveFolder)
-global batchSize cropWidth widthNeighbor iBatch batchMB currSpeed iPatch;
-persistent batchInput batchGT;
-if isempty(batchInput)
+% start generating
+tic;
+for iBatch = iBatchStart:nBatches 
+    isFrames = randi(length(frameDirs),batchSize,1);
     batchInput = zeros(batchSize,cropWidth,cropWidth,widthNeighbor*3,'uint8');
     batchGT = zeros(batchSize,cropWidth,cropWidth,3,'uint8');
-end
-
-batchInput(iPatch,:,:,:) = patchInput;
-batchGT(iPatch,:,:,:) = patchGT;
-iPatch = iPatch+1;
-if iPatch > batchSize
-    saveDir = fullfile(saveFolder,sprintf( ...
-        'batch_width%d_size%d_%05d.mat',cropWidth,batchSize,iBatch));
-    disp(['saving' saveDir]);
+    parfor iPatch = 1:batchSize
+        zoom = argumentZoom(unidrnd(4));
+        flip = rand>0.5;
+        rotate = unidrnd(4);
+        
+        inputDirs = frameDirs{isFrames(iPatch),1};
+        GTDirs = frameDirs{isFrames(iPatch),2};
+        gtIm = imread(GTDirs);
+        gtIm = argument(gtIm,zoom,flip,rotate);
+        [h,w,c] = size(gtIm);
+        patchUncroped = zeros(h,w,c,widthNeighbor);
+        patchUncroped(:,:,:,1) = gtIm;
+        for iNeighbor = 1:widthNeighbor
+            inputIm = imread(inputDirs{iNeighbor});
+            patchUncroped(:,:,:,iNeighbor+1) = argument(inputIm,zoom,flip,rotate);
+        end
+        patchCroped = randomCrop(patchUncroped,cropWidth);
+%         montage(patchCroped/255);
+%         pause(1)
+        batchInput(iPatch,:,:,:) = reshape(patchCroped(:,:,:,2:end),[cropWidth,cropWidth,3*widthNeighbor]);
+        batchGT(iPatch,:,:,:) = squeeze(patchCroped(:,:,:,1));
+%         imshow(squeeze(batchInput(iPatch,:,:,1:3)));
+%         pause(1)
+    end
+    batchDir = fullfile(saveFolder,sprintf( ...
+        'batch_width%d_size%d_%05d.mat',cropWidth,batchSize,iBatch-1));
+    disp(['saving to ' batchDir]);
     batchInputTorch = permute(batchInput,[1,4,2,3]);
     batchGTTorch = permute(batchGT,[1,4,2,3]);
-    save(saveDir,'batchInputTorch','batchGTTorch','-v6');
-    currSpeed = batchMB*iBatch/toc;
-    iPatch = 1;
-    iBatch = iBatch+1;
+    save(batchDir,'batchInputTorch','batchGTTorch','-v6');
+    ms = toc*(nBatches-iBatch)/60;
+    tic;
+    hours = floor(ms/60);
+    mins = mod(ms,60);
+    fprintf('Generating... %.2f%%, %d hours %.1f minutes left.\n', ...
+    iBatch/nBatches*100,hours,mins);
 end
+end
+
+function imsCrop = randomCrop(ims,cropWidth)
+[h,w,~,~] = size(ims);
+wRange = w-cropWidth+1;
+hRange = h-cropWidth+1;
+wStart = randi(wRange);
+hStart = randi(hRange);
+isHCrop = hStart:hStart+cropWidth-1;
+isWCrop = wStart:wStart+cropWidth-1;
+imsCrop = ims(isHCrop,isWCrop,:,:);
+end
+
+function imArg = argument(im,zoom,flip,rotate)
+imArg = imresize(im, zoom);
+if flip
+    imArg = fliplr(imArg);
+end
+imArg = rot90(imArg,rotate);
 end
