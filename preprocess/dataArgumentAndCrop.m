@@ -6,10 +6,10 @@ close all
 %% Parameters
 global batchSize cropWidth widthNeighbor
 global frameExt nArguments argumentZoom
-alignments = {'_nowarp'};%,'_OF','_homography'};
-inputDir = '~/projects/DeepVideoDeblurring/data';
+alignments = {'_OF','_homography'};%{'_nowarp','_OF','_homography'};
+inputDir = '~/Desktop/zc/DeepVideoDeblurring/data';
 inputFolderPrefix = 'training_real_all_nostab';
-gtDir = '~/projects/DeepVideoDeblurring/dataset/quantitative_datasets';
+gtDir = '~/Desktop/zc/DeepVideoDeblurring/dataset/quantitative_datasets';
 
 saveDir = '../data';
 saveFolderPrefixTrain = 'training_augumented_croped_all_nostab';
@@ -42,8 +42,7 @@ validset = {'IMG_0030' 'IMG_0049' 'IMG_0021' '720p_240fps_2' 'IMG_0032' ...
 'IMG_0033' 'IMG_0031' 'IMG_0003' 'IMG_0039' 'IMG_0037'};% from git rep DeepVideoDeburring
 
 %% Generate batches
-% for iAlignment = 1:length(alignments)
-iAlignment=1
+for iAlignment = 1:length(alignments)
     alignment = alignments{iAlignment};
     
     %% scan frames
@@ -62,7 +61,7 @@ iAlignment=1
     saveAlignFolder = fullfile(saveDir,[saveFolderPrefixValid,alignment]);
     checkDir(saveAlignFolder);
     generateBatches(frameDirs,saveAlignFolder,nCrop*length(frameDirs)/batchSize*nArguments)
-% end
+end
 
 
 %% functions 

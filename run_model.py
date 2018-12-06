@@ -11,33 +11,34 @@ def parseArgs():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--model', type=str, default=None, help='model name')
-    parser.add_argument('--ckp_dir_load', type=str, default=None, help='checkpoint dir to load')
+    parser.add_argument('--ckp_dir', type=str, default=None,
+                        help='checkpoint dir to save or load for validating and testing')
+    parser.add_argument('--ckp_dir_load', type=str, default=None, help='checkpoint dir to load for training')
 
     parser.add_argument('--data_trainset', type=str, default=None, help='folder for transet data')
-    parser.add_argument('--data_validset', type=str, default=None, help='folder for validset data')
     parser.add_argument('--batch_size', type=int, default=64,
                         help='size of batch sampled from batch files (if is larger than size from batch files, use entire batch every iteration)')
     parser.add_argument('--it_max', type=int, default=80000, help='max number of iterations')
-
-    parser.add_argument('--ckp_dir', type=str, default=None,
-                        help='checkpoint dir to save, if not empty, scan for checkpoint')
-    parser.add_argument('--save_every', type=int, default=300, help='auto save every save_every iterations')
-    parser.add_argument('--log_every', type=int, default=20, help='log every log_every iterations')
-
     parser.add_argument('--reset_lr', type=float, default=None,
                         help='reset lr to reset_lr instead of default or saved lr')
     parser.add_argument('--decay_from', type=int, default=24000, help='decay learning rate from decay_from iterations')
     parser.add_argument('--decay_every', type=int, default=8000, help='decay learning rate every decay_every iteration')
     parser.add_argument('--decay_rate', type=int, default=0.5, help='decay learning rate')
+    parser.add_argument('--save_every', type=int, default=300, help='auto save every save_every iterations')
+    parser.add_argument('--log_every', type=int, default=20, help='log every log_every iterations')
 
     parser.add_argument('--data_testset', type=str, default=None, help='folder for testset data')
     parser.add_argument('--output_dir', type=str, default=None, help='folder to output test results')
+
+    parser.add_argument('--data_validset', type=str, default=None, help='folder for validset data')
+    parser.add_argument('--num_valid', type=int, default=100, help='num of batches used for testing loss')
 
     return parser.parse_args()
 
 
 def scanSetFolder(folder):
     names = os.listdir(folder)
+    names.sort()
     dirs = [os.path.join(folder, name) for name in names]
     return dirs, names
 
@@ -63,13 +64,18 @@ def loadModel(args):
             deblur.load(args.ckp_dir)
         except:
             print('No checkpoint or incompatible checkpoint in ckp_dir!')
+        else:
+            return deblur
 
     if args.ckp_dir_load is not None:
         try:
             deblur.load(args.ckp_dir_load)
         except:
             print('No checkpoint or incompatible checkpoint in ckp_dir_load!')
+        else:
+            return deblur
 
+    deblur.initialize()
     return deblur
 
 def train(args):
@@ -102,7 +108,19 @@ def valid(args):
     validsetDirs, _ = scanSetFolder(args.data_validset)
     print('Found %d validset files' % len(validsetDirs))
     showDirExamples(validsetDirs)
-    pass
+
+    # load model
+    deblur = loadModel(args)
+
+    nBatchValid = args.num_valid
+    lossAvg = 0
+    for iBatch in range(nBatchValid):
+        batchInput, batchGT = deblur.loadRandomBatchFrom(validsetDirs)
+        _, loss = deblur.testBatch(batchInput, batchGT)
+        lossAvg = lossAvg+loss
+        print('%d / %d' % (iBatch, nBatchValid))
+    lossAvg = lossAvg/nBatchValid
+    print('Loss on dataset is %f' % lossAvg)
 
 def test(args):
     # scan dataset
