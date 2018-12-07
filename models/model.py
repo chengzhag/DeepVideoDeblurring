@@ -6,34 +6,80 @@ import numpy as np
 import time
 import matplotlib.pyplot as plt
 
+
 class Deblur(object):
-    def __init__(self, createFcn, maxIntensity = 255):
+    def __init__(self, createFcn, maxIntensity=255, nGPUs=1):
         self.maxIntensity = maxIntensity
 
         tf.reset_default_graph()
-        self.inputPh = tf.placeholder(tf.float32, shape=(None, None, None, 15), name='input')
-        self.gtPh = tf.placeholder(tf.float32, shape=(None, None, None, 3), name='gt')
-        self.trainingPh = tf.placeholder(tf.bool, shape=(), name='training')
-        self.learningRateV = tf.Variable(0.005, trainable=False, dtype=tf.float32, name='learning_rate')
-        self.globalStepV = tf.train.create_global_step()
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRateV,name='optim')
-        self.outputT = createFcn(self.inputPh, self.trainingPh)
-        self.lossT = tf.losses.mean_squared_error(self.gtPh, self.outputT)
+        with tf.device("/cpu:0"):
+            self.inputPh = tf.placeholder(tf.float32, shape=(None, None, None, 15), name='input')
+            self.gtPh = tf.placeholder(tf.float32, shape=(None, None, None, 3), name='gt')
+            self.trainingPh = tf.placeholder(tf.bool, shape=(), name='training')
+            self.learningRateV = tf.Variable(0.005, trainable=False, dtype=tf.float32, name='learning_rate')
+            self.globalStepV = tf.train.create_global_step()
+            self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRateV, name='optim')
 
-        updateOps = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-        with tf.control_dependencies(updateOps):
-            self.trainOp = self.optimizer.minimize(
-                self.lossT,
-                global_step=self.globalStepV
-            )
+            print('Using %d GPUs' % nGPUs)
+            if nGPUs > 1:
+                inputSplitsT = tf.split(self.inputPh, nGPUs)
+                gtSplitsT = tf.split(self.gtPh, nGPUs)
+                towerGradsT = []
+                towerLossT = []
+                towerOutputT = []
+
+                for iGPU in range(nGPUs):
+                    with tf.variable_scope(tf.get_variable_scope(),reuse=iGPU>0):
+                        with tf.device("/gpu:%d" % iGPU):
+                            with tf.name_scope("tower_%d" % iGPU):
+                                outputT = createFcn(inputSplitsT[iGPU], self.trainingPh)
+                                lossT = tf.losses.mean_squared_error(gtSplitsT[iGPU], outputT)
+                                gradsT = self.optimizer.compute_gradients(lossT)
+                                towerGradsT.append(gradsT)
+                                towerLossT.append(lossT)
+                                towerOutputT.append(outputT)
+
+                def average_gradients(tower_grads):
+                    average_grads = []
+                    for grad_and_vars in zip(*tower_grads):
+                        grads = []
+                        for g, _ in grad_and_vars:
+                            expend_g = tf.expand_dims(g, 0)
+                            grads.append(expend_g)
+                        grad = tf.concat(grads, 0)
+                        grad = tf.reduce_mean(grad, 0)
+                        v = grad_and_vars[0][1]
+                        grad_and_var = (grad, v)
+                        average_grads.append(grad_and_var)
+                    return average_grads
+
+                gradsT = average_gradients(towerGradsT)
+                self.lossT = tf.reduce_mean(towerLossT)
+                self.outputT = tf.concat(towerOutputT, 0)
+
+                updateOps = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                with tf.control_dependencies(updateOps):
+                    self.trainOp = self.optimizer.apply_gradients(
+                        gradsT,
+                        global_step=self.globalStepV
+                    )
+            else:
+                with tf.device("/gpu:0"):
+                    self.outputT = createFcn(self.inputPh, self.trainingPh)
+                    self.lossT = tf.losses.mean_squared_error(self.gtPh, self.outputT)
+
+                    updateOps = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                    with tf.control_dependencies(updateOps):
+                        self.trainOp = self.optimizer.minimize(
+                            self.lossT,
+                            global_step=self.globalStepV
+                        )
 
         gpu_options = tf.GPUOptions(allow_growth=True)
-        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-
+        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options,allow_soft_placement=True,))
 
     def initialize(self):
         self.sess.run(tf.global_variables_initializer())
-
 
     def load(self, ckpDir):
         loadDir = tf.train.latest_checkpoint(ckpDir)
@@ -41,20 +87,19 @@ class Deblur(object):
         saver = tf.train.Saver()
         saver.restore(self.sess, loadDir)
 
-
     def train(
             self,
             trainsetDirs,
-            ckpDir = None,
-            saveEvery = 1000,
-            logEvery = 20,
-            batchSize = 64,
-            decayFrom = 24000,
-            decayEvery = 8000,
-            decayRate = 0.5,
-            lrMin = 1e-6,
-            itMax = 80000,
-            lr = None,
+            ckpDir=None,
+            saveEvery=1000,
+            logEvery=20,
+            batchSize=64,
+            decayFrom=24000,
+            decayEvery=8000,
+            decayRate=0.5,
+            lrMin=1e-6,
+            itMax=80000,
+            lr=None,
     ):
         print("                    batchSize = %d" % batchSize)
         print("                    decayFrom = %d" % decayFrom)
@@ -111,7 +156,8 @@ class Deblur(object):
             tic = time.time()
             timeLeftMin = timeLeft / 60
             print('it: %d, loss: %f, lr: %f, spd: %.2f it/s, avgSpd: %.2f it/s, left: %d h %.1f min' %
-                  (it, batchLoss, self.learningRateV.eval(self.sess), speed, avgSpeed, timeLeftMin / 60, timeLeftMin % 60))
+                  (it, batchLoss, self.learningRateV.eval(self.sess), speed, avgSpeed, timeLeftMin / 60,
+                   timeLeftMin % 60))
             if ckpDir is not None: lossAvg = lossAvg + batchLoss
             if ckpDir is not None and it % logEvery == 0:
                 lossAvg = lossAvg / logEvery
@@ -162,8 +208,6 @@ class Deblur(object):
         else:
             pass
 
-
-
     def predictBatch(self, batchInput):
         batchOutput = self.sess.run(
             self.outputT,
@@ -184,7 +228,6 @@ class Deblur(object):
             }
         )
         return batchOutput, batchLoss
-
 
     def loadRandomBatchFrom(self, batchDirs, batchSize=None):
         sampleDir = choice(batchDirs)
@@ -207,4 +250,3 @@ class Deblur(object):
         batchGT = batchGT.transpose((0, 2, 3, 1)).astype(np.float32) / self.maxIntensity
 
         return batchInput, batchGT
-

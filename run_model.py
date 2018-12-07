@@ -24,14 +24,16 @@ def parseArgs():
     parser.add_argument('--decay_from', type=int, default=24000, help='decay learning rate from decay_from iterations')
     parser.add_argument('--decay_every', type=int, default=8000, help='decay learning rate every decay_every iteration')
     parser.add_argument('--decay_rate', type=int, default=0.5, help='decay learning rate')
-    parser.add_argument('--save_every', type=int, default=300, help='auto save every save_every iterations')
-    parser.add_argument('--log_every', type=int, default=20, help='log every log_every iterations')
+    parser.add_argument('--save_every', type=int, default=100, help='auto save every save_every iterations')
+    parser.add_argument('--log_every', type=int, default=50, help='log every log_every iterations')
 
     parser.add_argument('--data_testset', type=str, default=None, help='folder for testset data')
     parser.add_argument('--output_dir', type=str, default=None, help='folder to output test results')
 
     parser.add_argument('--data_validset', type=str, default=None, help='folder for validset data')
     parser.add_argument('--num_valid', type=int, default=100, help='num of batches used for testing loss')
+
+    parser.add_argument('--num_gpus', type=int, default=1, help='num of gpus')
 
     return parser.parse_args()
 
@@ -55,7 +57,7 @@ def loadModel(args):
     specImport = importlib.util.spec_from_file_location('createFcn', modelDir)
     createFcn = importlib.util.module_from_spec(specImport)
     specImport.loader.exec_module(createFcn)
-    deblur = model.Deblur(createFcn.create_model)
+    deblur = model.Deblur(createFcn.create_model,nGPUs=args.num_gpus)
     print("Model loaded")
 
     if args.ckp_dir is not None:
