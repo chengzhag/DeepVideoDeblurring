@@ -14,9 +14,9 @@ class Deblur(object):
         self.inputPh = tf.placeholder(tf.float32, shape=(None, None, None, 15), name='input')
         self.gtPh = tf.placeholder(tf.float32, shape=(None, None, None, 3), name='gt')
         self.trainingPh = tf.placeholder(tf.bool, shape=(), name='training')
-        self.learningRateV = tf.Variable(0.005, trainable=False, dtype=tf.float32)
+        self.learningRateV = tf.Variable(0.005, trainable=False, dtype=tf.float32, name='learning_rate')
         self.globalStepV = tf.train.create_global_step()
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRateV)
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRateV,name='optim')
         self.outputT = createFcn(self.inputPh, self.trainingPh)
         self.lossT = tf.losses.mean_squared_error(self.gtPh, self.outputT)
 

@@ -1,82 +1,57 @@
 import tensorflow as tf
+import tensorflow.contrib.slim as slim
+
 
 def create_model(input, training):
-    def convBNrelu(input, filters, kernel_size, strides,
-                   kernel_initializer, bias_initializer, training, relu=True):
-        convOut = tf.layers.conv2d(
-            input,
-            filters=filters,
-            kernel_size=kernel_size,
-            strides=strides,
-            padding="SAME",
-            kernel_initializer=kernel_initializer,
-            bias_initializer=bias_initializer
-        )
-        bnOut = tf.layers.batch_normalization(
-            convOut,
-            # momentum=0.1,  # torch default
-            # epsilon=1e-3,
-            training=training
-        )
-        if relu:
-            reluOut = tf.nn.relu(bnOut)
-            return reluOut
-        else:
-            return bnOut
+    with tf.name_scope('ref'):
+        ref = tf.slice(input, [0, 0, 0, 6], [-1, -1, -1, 3])
 
-    def upConvBNaddRelu(input, inputAdd, filters, kernel_size, strides,
-                        kernel_initializer, bias_initializer, training):
-        upConvOut = tf.layers.conv2d_transpose(
-            input,
-            filters=filters,
-            kernel_size=kernel_size,
-            strides=strides,
-            padding="SAME",
-            kernel_initializer=kernel_initializer,
-            bias_initializer=bias_initializer
-        )
-        bnOut = tf.layers.batch_normalization(
-            upConvOut,
-            # momentum=0.1,  # torch default
-            # epsilon=1e-3,
-            training=training
-        )
-        reluOut = tf.nn.relu(bnOut + inputAdd)
-        return reluOut
+    with slim.arg_scope([slim.conv2d],
+                        kernel_size=(3, 3),
+                        stride=1,
+                        activation_fn=tf.nn.relu,
+                        normalizer_fn=slim.batch_norm):
+        with slim.arg_scope([slim.conv2d_transpose],
+                            kernel_size=(4, 4),
+                            stride=2,
+                            activation_fn=None,
+                            normalizer_fn=slim.batch_norm):
+            with slim.arg_scope([slim.batch_norm],
+                                decay=0.99,
+                                is_training=training):
+                F0 = slim.conv2d(input, 64, kernel_size=(5, 5), scope='F0')
 
-    kernelInitializer = tf.variance_scaling_initializer
-    biasInitializer = tf.variance_scaling_initializer
+                D1 = slim.conv2d(F0, 64, stride=2, scope='D1')
+                F1 = slim.conv2d(D1, 128, scope='F1')
+                F2 = slim.conv2d(F1, 128, scope='F2')
 
-    ref = tf.slice(input, [0, 0, 0, 6], [-1, -1, -1, 3])
-    F0 = convBNrelu(input, 64, (5, 5), (1, 1), kernelInitializer, biasInitializer, training)
+                D2 = slim.conv2d(F2, 256, stride=2, scope='D2')
+                F3 = slim.conv2d(D2, 256, scope='F3')
+                F4 = slim.conv2d(F3, 256, scope='F4')
+                F5 = slim.conv2d(F4, 256, scope='F5')
 
-    D1 = convBNrelu(F0, 64, (3, 3), (2, 2), kernelInitializer, biasInitializer, training)
-    F1 = convBNrelu(D1, 128, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F2 = convBNrelu(F1, 128, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
+                D3 = slim.conv2d(F5, 512, stride=2, scope='D3')
+                F6 = slim.conv2d(D3, 512, scope='F6')
+                F7 = slim.conv2d(F6, 512, scope='F7')
+                F8 = slim.conv2d(F7, 512, scope='F8')
 
-    D2 = convBNrelu(F2, 256, (3, 3), (2, 2), kernelInitializer, biasInitializer, training)
-    F3 = convBNrelu(D2, 256, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F4 = convBNrelu(F3, 256, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F5 = convBNrelu(F4, 256, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
+                U1 = slim.conv2d_transpose(F8, 256, scope='U1')
+                with tf.name_scope('S1'): S1 = tf.nn.relu(U1 + F5)
+                F9 = slim.conv2d(S1, 256, scope='F9')
+                F10 = slim.conv2d(F9, 256, scope='F10')
+                F11 = slim.conv2d(F10, 256, scope='F11')
 
-    D3 = convBNrelu(F5, 512, (3, 3), (2, 2), kernelInitializer, biasInitializer, training)
-    F6 = convBNrelu(D3, 512, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F7 = convBNrelu(F6, 512, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F8 = convBNrelu(F7, 512, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
+                U2 = slim.conv2d_transpose(F11, 128, scope='U2')
+                with tf.name_scope('S2'): S2 = tf.nn.relu(U2 + F2)
+                F12 = slim.conv2d(S2, 128, scope='F12')
+                F13 = slim.conv2d(F12, 64, scope='F13')
 
-    S1 = upConvBNaddRelu(F8, F5, 256, (4, 4), (2, 2), kernelInitializer, biasInitializer, training)
-    F9 = convBNrelu(S1, 256, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F10 = convBNrelu(F9, 256, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F11 = convBNrelu(F10, 256, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
+                U3 = slim.conv2d_transpose(F13, 64, scope='U3')
+                with tf.name_scope('S3'): S3 = tf.nn.relu(U3 + F0)
+                F14 = slim.conv2d(S3, 15, scope='F14')
+                F15 = slim.conv2d(F14, 3, scope='F15', activation_fn=None)
 
-    S2 = upConvBNaddRelu(F11, F2, 128, (4, 4), (2, 2), kernelInitializer, biasInitializer, training)
-    F12 = convBNrelu(S2, 128, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F13 = convBNrelu(F12, 64, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-
-    S3 = upConvBNaddRelu(F13, F0, 64, (4, 4), (2, 2), kernelInitializer, biasInitializer, training)
-    F14 = convBNrelu(S3, 15, (3, 3), (1, 1), kernelInitializer, biasInitializer, training)
-    F15 = convBNrelu(F14, 3, (3, 3), (1, 1), kernelInitializer, biasInitializer, training, False)
-
-    S4 = tf.nn.sigmoid(ref + F15)
+    with tf.name_scope('S4'):
+        S4 = tf.nn.sigmoid(ref + F15)
 
     return S4
