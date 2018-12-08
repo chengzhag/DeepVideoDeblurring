@@ -5,6 +5,8 @@ import scipy.io as sio
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from threading import Thread
+from queue import Queue
 
 
 class Deblur(object):
@@ -12,71 +14,71 @@ class Deblur(object):
         self.maxIntensity = maxIntensity
 
         tf.reset_default_graph()
-        with tf.device("/cpu:0"):
-            self.inputPh = tf.placeholder(tf.float32, shape=(None, None, None, 15), name='input')
-            self.gtPh = tf.placeholder(tf.float32, shape=(None, None, None, 3), name='gt')
-            self.trainingPh = tf.placeholder(tf.bool, shape=(), name='training')
-            self.learningRateV = tf.Variable(0.005, trainable=False, dtype=tf.float32, name='learning_rate')
-            self.globalStepV = tf.train.create_global_step()
-            self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRateV, name='optim')
 
-            print('Using %d GPUs' % nGPUs)
-            if nGPUs > 1:
-                inputSplitsT = tf.split(self.inputPh, nGPUs)
-                gtSplitsT = tf.split(self.gtPh, nGPUs)
-                towerGradsT = []
-                towerLossT = []
-                towerOutputT = []
+        self.inputPh = tf.placeholder(tf.float32, shape=(None, None, None, 15), name='input')
+        self.gtPh = tf.placeholder(tf.float32, shape=(None, None, None, 3), name='gt')
+        self.trainingPh = tf.placeholder(tf.bool, shape=(), name='training')
+        self.learningRateV = tf.Variable(0.005, trainable=False, dtype=tf.float32, name='learning_rate')
+        self.globalStepV = tf.train.create_global_step()
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.learningRateV, name='optim')
 
-                for iGPU in range(nGPUs):
-                    with tf.variable_scope(tf.get_variable_scope(),reuse=iGPU>0):
-                        with tf.device("/gpu:%d" % iGPU):
-                            with tf.name_scope("tower_%d" % iGPU):
-                                outputT = createFcn(inputSplitsT[iGPU], self.trainingPh)
-                                lossT = tf.losses.mean_squared_error(gtSplitsT[iGPU], outputT)
-                                gradsT = self.optimizer.compute_gradients(lossT)
-                                towerGradsT.append(gradsT)
-                                towerLossT.append(lossT)
-                                towerOutputT.append(outputT)
+        print('Using %d GPUs' % nGPUs)
+        if nGPUs > 1:
+            inputSplitsT = tf.split(self.inputPh, nGPUs)
+            gtSplitsT = tf.split(self.gtPh, nGPUs)
+            towerGradsT = []
+            towerLossT = []
+            towerOutputT = []
 
-                def average_gradients(tower_grads):
-                    average_grads = []
-                    for grad_and_vars in zip(*tower_grads):
-                        grads = []
-                        for g, _ in grad_and_vars:
-                            expend_g = tf.expand_dims(g, 0)
-                            grads.append(expend_g)
-                        grad = tf.concat(grads, 0)
-                        grad = tf.reduce_mean(grad, 0)
-                        v = grad_and_vars[0][1]
-                        grad_and_var = (grad, v)
-                        average_grads.append(grad_and_var)
-                    return average_grads
+            for iGPU in range(nGPUs):
+                with tf.variable_scope(tf.get_variable_scope(), reuse=iGPU > 0):
+                    with tf.device("/gpu:%d" % iGPU):
+                        with tf.name_scope("tower_%d" % iGPU):
+                            outputT = createFcn(inputSplitsT[iGPU], self.trainingPh)
+                            lossT = tf.losses.mean_squared_error(gtSplitsT[iGPU], outputT)
+                            gradsT = self.optimizer.compute_gradients(lossT)
+                            towerGradsT.append(gradsT)
+                            towerLossT.append(lossT)
+                            towerOutputT.append(outputT)
 
-                gradsT = average_gradients(towerGradsT)
-                self.lossT = tf.reduce_mean(towerLossT)
-                self.outputT = tf.concat(towerOutputT, 0)
+            def average_gradients(tower_grads):
+                average_grads = []
+                for grad_and_vars in zip(*tower_grads):
+                    grads = []
+                    for g, _ in grad_and_vars:
+                        expend_g = tf.expand_dims(g, 0)
+                        grads.append(expend_g)
+                    grad = tf.concat(grads, 0)
+                    grad = tf.reduce_mean(grad, 0)
+                    v = grad_and_vars[0][1]
+                    grad_and_var = (grad, v)
+                    average_grads.append(grad_and_var)
+                return average_grads
+
+            gradsT = average_gradients(towerGradsT)
+            self.lossT = tf.reduce_mean(towerLossT)
+            self.outputT = tf.concat(towerOutputT, 0)
+
+            updateOps = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+            with tf.control_dependencies(updateOps):
+                self.trainOp = self.optimizer.apply_gradients(
+                    gradsT,
+                    global_step=self.globalStepV
+                )
+        else:
+            with tf.device("/gpu:0"):
+                self.outputT = createFcn(self.inputPh, self.trainingPh)
+                self.lossT = tf.losses.mean_squared_error(self.gtPh, self.outputT)
 
                 updateOps = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
                 with tf.control_dependencies(updateOps):
-                    self.trainOp = self.optimizer.apply_gradients(
-                        gradsT,
+                    self.trainOp = self.optimizer.minimize(
+                        self.lossT,
                         global_step=self.globalStepV
                     )
-            else:
-                with tf.device("/gpu:0"):
-                    self.outputT = createFcn(self.inputPh, self.trainingPh)
-                    self.lossT = tf.losses.mean_squared_error(self.gtPh, self.outputT)
-
-                    updateOps = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-                    with tf.control_dependencies(updateOps):
-                        self.trainOp = self.optimizer.minimize(
-                            self.lossT,
-                            global_step=self.globalStepV
-                        )
 
         gpu_options = tf.GPUOptions(allow_growth=True)
-        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options,allow_soft_placement=True,))
+        self.sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, allow_soft_placement=True))
 
     def initialize(self):
         self.sess.run(tf.global_variables_initializer())
@@ -123,6 +125,21 @@ class Deblur(object):
             merged = tf.summary.merge_all()
             print('Logging to: ' + ckpDir)
 
+        qBatches = Queue(maxsize=3)
+
+        def loadFcn():
+            while True:
+                qBatches.put(self.loadRandomBatchFrom(
+                    trainsetDirs,
+                    batchSize=batchSize
+                ))
+                qBatches.task_done()
+
+        for iWorker in range(3):
+            worker = Thread(target=loadFcn)
+            worker.setDaemon(True)
+            worker.start()
+
         tic = time.time()
         it = tf.train.global_step(self.sess, self.globalStepV)
         avgSpeed = None
@@ -133,10 +150,7 @@ class Deblur(object):
                 self.sess.run(self.learningRateV.assign(self.learningRateV * decayRate))
             if self.learningRateV.eval(self.sess) < lrMin:
                 self.learningRateV.load(lrMin, self.sess)
-            batchInput, batchGT = self.loadRandomBatchFrom(
-                trainsetDirs,
-                batchSize=batchSize
-            )
+            batchInput, batchGT = qBatches.get()
             batchLoss, _ = self.sess.run(
                 (self.lossT, self.trainOp),
                 feed_dict={
@@ -186,6 +200,8 @@ class Deblur(object):
                     print("Model saved in path: %s" % savePath)
                 else:
                     print('Use param --ckp_dir to specify path to save!')
+
+        qBatches.join()
 
     def showBatchIm(self, batch, i=0):
         im = batch[i, :, :, :]

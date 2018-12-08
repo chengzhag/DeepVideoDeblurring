@@ -25,7 +25,7 @@ def parseArgs():
     parser.add_argument('--decay_every', type=int, default=8000, help='decay learning rate every decay_every iteration')
     parser.add_argument('--decay_rate', type=int, default=0.5, help='decay learning rate')
     parser.add_argument('--save_every', type=int, default=100, help='auto save every save_every iterations')
-    parser.add_argument('--log_every', type=int, default=50, help='log every log_every iterations')
+    parser.add_argument('--log_every', type=int, default=100, help='log every log_every iterations')
 
     parser.add_argument('--data_testset', type=str, default=None, help='folder for testset data')
     parser.add_argument('--output_dir', type=str, default=None, help='folder to output test results')
