@@ -6,6 +6,8 @@ import scipy.misc
 import numpy as np
 import importlib
 import models.model as model
+import glob
+import random
 
 def parseArgs():
     parser = argparse.ArgumentParser()
@@ -39,9 +41,9 @@ def parseArgs():
 
 
 def scanSetFolder(folder):
-    names = os.listdir(folder)
-    names.sort()
-    dirs = [os.path.join(folder, name) for name in names]
+    dirs = glob.glob(os.path.join(folder,'*.tfrecords'))
+    dirs.sort()
+    names = [os.path.split(dir)[1] for dir in dirs]
     return dirs, names
 
 
@@ -85,6 +87,7 @@ def train(args):
     print('Scanning trainset files from %s' % args.data_trainset)
     trainsetDirs, _ = scanSetFolder(args.data_trainset)
     print('Found %d trainset files' % len(trainsetDirs))
+    random.shuffle(trainsetDirs)
     showDirExamples(trainsetDirs)
 
     # load model
@@ -109,19 +112,13 @@ def valid(args):
     print('Scanning validset files from %s' % args.data_validset)
     validsetDirs, _ = scanSetFolder(args.data_validset)
     print('Found %d validset files' % len(validsetDirs))
+    random.shuffle(validsetDirs)
     showDirExamples(validsetDirs)
 
     # load model
     deblur = loadModel(args)
 
-    nBatchValid = args.num_valid
-    lossAvg = 0
-    for iBatch in range(nBatchValid):
-        batchInput, batchGT = deblur.loadRandomBatchFrom(validsetDirs)
-        _, loss = deblur.testBatch(batchInput, batchGT)
-        lossAvg = lossAvg+loss
-        print('%d / %d' % (iBatch, nBatchValid))
-    lossAvg = lossAvg/nBatchValid
+    lossAvg = deblur.valid(validsetDirs, args.num_valid, args.batch_size)
     print('Loss on dataset is %f' % lossAvg)
 
 def test(args):

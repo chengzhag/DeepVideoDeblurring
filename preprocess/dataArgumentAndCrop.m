@@ -6,14 +6,15 @@ close all
 %% Parameters
 global batchSize cropWidth widthNeighbor
 global frameExt nArguments argumentZoom
-alignments = {'_OF','_homography'};%{'_nowarp','_OF','_homography'};
-inputDir = '~/Desktop/zc/DeepVideoDeblurring/data';
+alignments = {'_nowarp'};%{'_nowarp','_OF','_homography'};
+inputDir = '/home/zhangcheng/projects/DeepVideoDeblurring/data';
 inputFolderPrefix = 'training_real_all_nostab';
-gtDir = '~/Desktop/zc/DeepVideoDeblurring/dataset/quantitative_datasets';
+gtDir = '/home/zhangcheng/projects/DeepVideoDeblurring/dataset/quantitative_datasets';
 
 saveDir = '../data';
-saveFolderPrefixTrain = 'training_augumented_croped_all_nostab';
-saveFolderPrefixValid = 'validating_augumented_croped_all_nostab';
+saveFolderPrefixTrain = 'training_augumented_all_nostab';
+saveFolderPrefixValid = 'validating_augumented_all_nostab';
+
 frameExt = '.jpg';
 cropWidth = 128;
 nCrop = 10;
@@ -66,7 +67,7 @@ end
 
 %% functions 
 
-function frameDirs = scanFrames(inputFolders,gtDir,videoNames)
+function frameDirs = scanFrames(inputFolder,gtDir,videoNames)
 global frameExt widthNeighbor
 % for all videos
 disp('Scanning frames...');
@@ -74,7 +75,7 @@ frameDirs = {};
 iFrameAll = 1;
 for iVideo = 1:length(videoNames)
     videoName = videoNames{iVideo};
-    inputFrameFolder = fullfile(inputFolders,videoName);
+    inputFrameFolder = fullfile(inputFolder,videoName);
     inputFrameNames = dir(fullfile(inputFrameFolder,'image_0',['*',frameExt]));
     inputFrameNames = {inputFrameNames.name};
     GTFrameFolder = fullfile(gtDir,videoName,'GT');
@@ -116,8 +117,8 @@ for iBatch = iBatchStart:nBatches
         rotate = unidrnd(4);
         
         inputDirs = frameDirs{isFrames(iPatch),1};
-        GTDirs = frameDirs{isFrames(iPatch),2};
-        gtIm = imread(GTDirs);
+        GTDir = frameDirs{isFrames(iPatch),2};
+        gtIm = imread(GTDir);
         gtIm = argument(gtIm,zoom,flip,rotate);
         [h,w,c] = size(gtIm);
         patchUncroped = zeros(h,w,c,widthNeighbor);

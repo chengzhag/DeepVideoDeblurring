@@ -89,6 +89,35 @@ class Deblur(object):
         saver = tf.train.Saver()
         saver.restore(self.sess, loadDir)
 
+    def valid(self, validsetDirs, nValid, batchSize):
+        batchT = self.loadDataset(validsetDirs, batchSize)
+
+        tic = time.time()
+        avgSpeed = None
+        lossAvg = 0
+        for iBatch in range(nValid):
+            batchInput, batchGT = self.sess.run(batchT)
+            batchLoss, _ = self.sess.run(
+                (self.lossT),
+                feed_dict={
+                    self.trainingPh: False,
+                    self.inputPh: batchInput,
+                    self.gtPh: batchGT
+                }
+            )
+            lossAvg += batchLoss
+            toc = time.time()
+            speed = 1 / (toc - tic)
+            avgSpeed = avgSpeed or speed
+            avgSpeed = 0.1 * speed + 0.9 * avgSpeed
+            timeLeft = (nValid - iBatch) / avgSpeed
+            toc = tic
+            tic = time.time()
+            timeLeftMin = timeLeft / 60
+            print('iBatch: %d, lossAvg: %f, spd: %.2f it/s, avgSpd: %.2f it/s, left: %d h %.1f min' %
+                  (iBatch, lossAvg/(iBatch+1), speed, avgSpeed, timeLeftMin / 60, timeLeftMin % 60))
+        return lossAvg/nValid
+
     def train(
             self,
             trainsetDirs,
@@ -120,25 +149,12 @@ class Deblur(object):
             lossAvgPh = tf.placeholder(dtype=tf.float32)
             tf.summary.scalar('loss', lossAvgPh)
             tf.summary.scalar('learningRate', self.learningRateV)
-            tf.summary.image('inputIm', tf.slice(self.inputPh, [0, 0, 0, 6], [-1, -1, -1, 3]))
-            tf.summary.image('outputIm', self.outputT)
+            tf.summary.image('inputIm', tf.slice(self.inputPh, [0, 0, 0, 6], [-1, -1, -1, 3]), max_outputs=64)
+            tf.summary.image('outputIm', self.outputT, max_outputs=64)
             merged = tf.summary.merge_all()
             print('Logging to: ' + ckpDir)
 
-        qBatches = Queue(maxsize=3)
-
-        def loadFcn():
-            while True:
-                qBatches.put(self.loadRandomBatchFrom(
-                    trainsetDirs,
-                    batchSize=batchSize
-                ))
-                qBatches.task_done()
-
-        for iWorker in range(3):
-            worker = Thread(target=loadFcn)
-            worker.setDaemon(True)
-            worker.start()
+        batchT = self.loadDataset(trainsetDirs, batchSize)
 
         tic = time.time()
         it = tf.train.global_step(self.sess, self.globalStepV)
@@ -150,7 +166,7 @@ class Deblur(object):
                 self.sess.run(self.learningRateV.assign(self.learningRateV * decayRate))
             if self.learningRateV.eval(self.sess) < lrMin:
                 self.learningRateV.load(lrMin, self.sess)
-            batchInput, batchGT = qBatches.get()
+            batchInput, batchGT = self.sess.run(batchT)
             batchLoss, _ = self.sess.run(
                 (self.lossT, self.trainOp),
                 feed_dict={
@@ -200,8 +216,6 @@ class Deblur(object):
                     print("Model saved in path: %s" % savePath)
                 else:
                     print('Use param --ckp_dir to specify path to save!')
-
-        qBatches.join()
 
     def showBatchIm(self, batch, i=0):
         im = batch[i, :, :, :]
@@ -266,3 +280,34 @@ class Deblur(object):
         batchGT = batchGT.transpose((0, 2, 3, 1)).astype(np.float32) / self.maxIntensity
 
         return batchInput, batchGT
+
+    def loadDataset(self, batchDirs, batchSize):
+        with tf.name_scope('load'):
+            datasetRaw = tf.data.TFRecordDataset(batchDirs)
+
+            def parse_function(example_proto):
+                feature = {}
+                for i in range(6):
+                    if i == 0:
+                        imName = 'gt'
+                    else:
+                        imName = 'input_%d' % (i - 1)
+                    feature[imName] = tf.FixedLenFeature([], tf.string)
+                parsed_example = tf.parse_single_example(example_proto, feature)
+                patch = {}
+                patch['gt'] = tf.image.decode_png(parsed_example['gt'], channels=3) / self.maxIntensity
+                inputs = []
+                for i in range(5):
+                    imName = 'input_%d' % i
+                    inputs.append(tf.image.decode_png(parsed_example[imName], channels=3) / self.maxIntensity)
+                patch['input'] = tf.concat(inputs, -1)
+                return patch
+
+            datasetT = datasetRaw.map(parse_function) \
+                .shuffle(buffer_size=100) \
+                .batch(batchSize) \
+                .repeat(-1) \
+                .make_one_shot_iterator() \
+                .get_next()
+
+            return datasetT['input'], datasetT['gt']
