@@ -149,8 +149,8 @@ class Deblur(object):
             lossAvgPh = tf.placeholder(dtype=tf.float32)
             tf.summary.scalar('loss', lossAvgPh)
             tf.summary.scalar('learningRate', self.learningRateV)
-            tf.summary.image('inputIm', tf.slice(self.inputPh, [0, 0, 0, 6], [-1, -1, -1, 3]), max_outputs=64)
-            tf.summary.image('outputIm', self.outputT, max_outputs=64)
+            tf.summary.image('inputIm', tf.slice(self.inputPh, [0, 0, 0, 6], [-1, -1, -1, 3]))
+            tf.summary.image('outputIm', self.outputT)
             merged = tf.summary.merge_all()
             print('Logging to: ' + ckpDir)
 
@@ -303,10 +303,11 @@ class Deblur(object):
                 patch['input'] = tf.concat(inputs, -1)
                 return patch
 
-            datasetT = datasetRaw.map(parse_function) \
-                .shuffle(buffer_size=100) \
+            datasetT = datasetRaw.map(parse_function, num_parallel_calls=6) \
+                .repeat() \
+                .shuffle(buffer_size=3200) \
+                .prefetch(buffer_size=640) \
                 .batch(batchSize) \
-                .repeat(-1) \
                 .make_one_shot_iterator() \
                 .get_next()
 

@@ -11,10 +11,10 @@ import tensorflow as tf
 from io import BytesIO
 
 # Parameters
-alignments = ['_nowarp']
-inputDir = '/home/zhangcheng/projects/DeepVideoDeblurring/data'
+alignments = ['_nowarp','_OF','_homography']
+inputDir = '/home/omnisky/Desktop/zc/DeepVideoDeblurring/data'
 inputFolderPrefix = 'training_real_all_nostab'
-gtDir = '/home/zhangcheng/projects/DeepVideoDeblurring/dataset/quantitative_datasets'
+gtDir = '/home/omnisky/Desktop/zc/DeepVideoDeblurring/dataset/quantitative_datasets'
 
 saveDir = '../data'
 saveFolderPrefixTrain = 'training_augumented_all_nostab'
@@ -137,47 +137,79 @@ def saveBatch(batch, dir):
     pass
 
 
-def generateBatches(frameDirs, saveFolder, nBatches):
-    batchesDone = glob.glob(os.path.join(saveFolder, '*.tfrecords'))
-    batchesDone = [os.path.split(batcheDone)[1] for batcheDone in batchesDone]
-    batchesDone.sort()
-    if len(batchesDone) > 0:
-        iBatchStart = int(re.findall('\d{5}', batchesDone[-1])[0])
-    else:
-        iBatchStart = 0
+def generateBatches(frameDirs, saveFolder, nCrop):
+    # batchesDone = glob.glob(os.path.join(saveFolder, '*.tfrecords'))
+    # batchesDone = [os.path.split(batcheDone)[1] for batcheDone in batchesDone]
+    # batchesDone.sort()
+    # if len(batchesDone) > 0:
+    #     iBatchStart = int(re.findall('\d{5}', batchesDone[-1])[0])
+    # else:
+    #     iBatchStart = 0
 
     # start generating
+    batch = []
+    iBatch = 0
+    nBatches = nCrop * len(frameDirs) * nArguments / batchSize
     tic = time.time()
-    for iBatch in range(iBatchStart, int(nBatches)):
-        batch = []
-        for iFrame in [random.randint(0, len(frameDirs) - 1) for i in range(batchSize)]:
-            zoom = random.choice(argumentZoom)
-            flip = random.randint(0, 1)
-            rotate = random.randint(0, 3)
+    for frameDir in frameDirs:
+        inputDirs = frameDir[0]
+        GTDir = frameDir[1]
+        gtIm = Image.open(GTDir)
+        inputIms = [Image.open(inputDir) for inputDir in inputDirs]
+        for zoom in argumentZoom:
+            for flip in range(2):
+                for rotate in range(4):
+                    gtImArg = argument([gtIm], zoom, flip, rotate)
+                    inputImsArg = argument(inputIms, zoom, flip, rotate)
+                    for iCrop in range(nCrop):
+                        patchCroped = randomCrop(gtImArg + inputImsArg, cropWidth)
+                        batch.append(patchCroped)
+                        if len(batch) >= batchSize:
+                            saveBatch(batch, os.path.join(
+                                saveFolder,
+                                'batch_width%d_size%d_%05d.tfrecords' % (cropWidth, batchSize, iBatch)
+                            ))
+                            iBatch += 1
+                            batch = []
+                            ms = (time.time() - tic) * (nBatches - iBatch) / 60
+                            tic = time.time()
+                            hours = math.floor(ms / 60)
+                            mins = ms % 60
+                            print(
+                                '%.2f%% %d/%d, %d hours %.1f minutes left.' %
+                                ((iBatch) / nBatches * 100, iBatch, nBatches, hours, mins)
+                            )
 
-            inputDirs = frameDirs[iFrame][0]
-            GTDir = frameDirs[iFrame][1]
-            gtIm = Image.open(GTDir)
-            # print(GTDir)
-            gtIm = argument([gtIm], zoom, flip, rotate)
-            inputIms = [Image.open(inputDir) for inputDir in inputDirs]
-            # print(inputDirs)
-            inputIms = argument(inputIms, zoom, flip, rotate)
-            patchCroped = randomCrop(gtIm + inputIms, cropWidth)
-            # print(len(patchCroped))
-            batch.append(patchCroped)
-        saveBatch(batch, os.path.join(
-            saveFolder,
-            'batch_width%d_size%d_%05d.tfrecords' % (cropWidth, batchSize, iBatch)
-        ))
-        ms = (time.time() - tic) * (nBatches - iBatch) / 60
-        tic = time.time()
-        hours = math.floor(ms / 60)
-        mins = ms % 60
-        print(
-            '%.2f%% %d/%d, %d hours %.1f minutes left.' %
-            ((iBatch + 1) / nBatches * 100, iBatch + 1, nBatches, hours, mins)
-        )
+    # for iBatch in range(iBatchStart, int(nBatches)):
+    #     batch = []
+    #     for iFrame in [random.randint(0, len(frameDirs) - 1) for i in range(batchSize)]:
+    #         zoom = random.choice(argumentZoom)
+    #         flip = random.randint(0, 1)
+    #         rotate = random.randint(0, 3)
+    #
+    #         inputDirs = frameDirs[iFrame][0]
+    #         GTDir = frameDirs[iFrame][1]
+    #         gtIm = Image.open(GTDir)
+    #         # print(GTDir)
+    #         gtIm = argument([gtIm], zoom, flip, rotate)
+    #         inputIms = [Image.open(inputDir) for inputDir in inputDirs]
+    #         # print(inputDirs)
+    #         inputIms = argument(inputIms, zoom, flip, rotate)
+    #         patchCroped = randomCrop(gtIm + inputIms, cropWidth)
+    #         # print(len(patchCroped))
+    #         batch.append(patchCroped)
+    #     saveBatch(batch, os.path.join(
+    #         saveFolder,
+    #         'batch_width%d_size%d_%05d.tfrecords' % (cropWidth, batchSize, iBatch)
+    #     ))
+    #     ms = (time.time() - tic) * (nBatches - iBatch) / 60
+    #     tic = time.time()
+    #     hours = math.floor(ms / 60)
+    #     mins = ms % 60
+    #     print(
+    #         '%.2f%% %d/%d, %d hours %.1f minutes left.' %
+    #         ((iBatch + 1) / nBatches * 100, iBatch + 1, nBatches, hours, mins)
+    #     )
 
 
 for iAlignment in range(len(alignments)):
@@ -191,5 +223,13 @@ for iAlignment in range(len(alignments)):
     # generate batches
     saveAlignFolder = os.path.join(saveDir, saveFolderPrefixTrain + alignment)
     checkDir(saveAlignFolder)
-    # TODO: generate in order
-    generateBatches(frameDirs, saveAlignFolder, nCrop * len(frameDirs) / batchSize * nArguments)
+    generateBatches(frameDirs, saveAlignFolder, nCrop)
+
+    # scan validset frames
+    validset.sort()
+    frameDirs = scanFrames(inputFolders[iAlignment], gtDir, validset)
+
+    # generate validset batches
+    saveAlignFolder = os.path.join(saveDir, saveFolderPrefixValid + alignment)
+    checkDir(saveAlignFolder)
+    generateBatches(frameDirs, saveAlignFolder, nCrop)
