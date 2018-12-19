@@ -9,9 +9,11 @@ import time
 from PIL import Image
 import tensorflow as tf
 from io import BytesIO
+from multiprocessing import Pool, Queue
+import queue
 
 # Parameters
-alignments = ['_nowarp','_OF','_homography']
+alignments = ['_homography'] # '_OF',
 inputDir = '/home/omnisky/Desktop/zc/DeepVideoDeblurring/data'
 inputFolderPrefix = 'training_real_all_nostab'
 gtDir = '/home/omnisky/Desktop/zc/DeepVideoDeblurring/dataset/quantitative_datasets'
@@ -116,70 +118,98 @@ def randomCrop(ims, cropWidth):
         imsCrop.append(im)
     return imsCrop
 
+
 from matplotlib import pyplot as plt
+
+
 def saveBatch(batch, dir):
     print('Saving to ' + dir)
     writer = tf.python_io.TFRecordWriter(dir)
     for patch in batch:
-        feature = {}
-        for i, im in enumerate(patch):
-            if i == 0:
-                imName = 'gt'
-            else:
-                imName = 'input_%d' % (i - 1)
-            pngStr = BytesIO()
-            im.save(pngStr, format='png')
-            pngStr = pngStr.getvalue()
-            feature[imName] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[pngStr]))
-        example = tf.train.Example(features=tf.train.Features(feature=feature))
-        writer.write(example.SerializeToString())
+        writer.write(patch)
     writer.close()
     pass
 
 
+qPatches = Queue(maxsize=1000)
+
+
+def loadFcn(dir):
+    global qPatches
+    inputDirs = dir[0]
+    GTDir = dir[1]
+    gtIm = Image.open(GTDir)
+    inputIms = [Image.open(inputDir) for inputDir in inputDirs]
+    for zoom in argumentZoom:
+        for flip in range(2):
+            for rotate in range(4):
+                gtImArg = argument([gtIm], zoom, flip, rotate)
+                inputImsArg = argument(inputIms, zoom, flip, rotate)
+                for iCrop in range(nCrop):
+                    patchCroped = randomCrop(gtImArg + inputImsArg, cropWidth)
+                    feature = {}
+                    for i, im in enumerate(patchCroped):
+                        if i == 0:
+                            imName = 'gt'
+                        else:
+                            imName = 'input_%d' % (i - 1)
+                        pngStr = BytesIO()
+                        im.save(pngStr, format='png')
+                        pngStr = pngStr.getvalue()
+                        feature[imName] = tf.train.Feature(bytes_list=tf.train.BytesList(value=[pngStr]))
+                    example = tf.train.Example(features=tf.train.Features(feature=feature))
+                    qPatches.put(example.SerializeToString())
+
+
 def generateBatches(frameDirs, saveFolder, nCrop):
-    # batchesDone = glob.glob(os.path.join(saveFolder, '*.tfrecords'))
-    # batchesDone = [os.path.split(batcheDone)[1] for batcheDone in batchesDone]
-    # batchesDone.sort()
-    # if len(batchesDone) > 0:
-    #     iBatchStart = int(re.findall('\d{5}', batchesDone[-1])[0])
-    # else:
-    #     iBatchStart = 0
+    cacheLen = 5000
+    doneProducing = False
+
+    def doneFcn(_):
+        nonlocal doneProducing
+        doneProducing = True
+
+    random.shuffle(frameDirs)
+    pool = Pool(6)
+    pool.map_async(loadFcn, frameDirs, callback=doneFcn)
 
     # start generating
     batch = []
+    patchShuffle = []
     iBatch = 0
     nBatches = nCrop * len(frameDirs) * nArguments / batchSize
     tic = time.time()
-    for frameDir in frameDirs:
-        inputDirs = frameDir[0]
-        GTDir = frameDir[1]
-        gtIm = Image.open(GTDir)
-        inputIms = [Image.open(inputDir) for inputDir in inputDirs]
-        for zoom in argumentZoom:
-            for flip in range(2):
-                for rotate in range(4):
-                    gtImArg = argument([gtIm], zoom, flip, rotate)
-                    inputImsArg = argument(inputIms, zoom, flip, rotate)
-                    for iCrop in range(nCrop):
-                        patchCroped = randomCrop(gtImArg + inputImsArg, cropWidth)
-                        batch.append(patchCroped)
-                        if len(batch) >= batchSize:
-                            saveBatch(batch, os.path.join(
-                                saveFolder,
-                                'batch_width%d_size%d_%05d.tfrecords' % (cropWidth, batchSize, iBatch)
-                            ))
-                            iBatch += 1
-                            batch = []
-                            ms = (time.time() - tic) * (nBatches - iBatch) / 60
-                            tic = time.time()
-                            hours = math.floor(ms / 60)
-                            mins = ms % 60
-                            print(
-                                '%.2f%% %d/%d, %d hours %.1f minutes left.' %
-                                ((iBatch) / nBatches * 100, iBatch, nBatches, hours, mins)
-                            )
+    while True:
+        try:
+            patch = qPatches.get(block=False)
+        except queue.Empty:
+            pass
+        else:
+            patchShuffle.append(patch)
+            if len(patchShuffle) < cacheLen and len(patchShuffle) % 100 == 0:
+                print('Loading to cache %d/%d' % (len(patchShuffle), cacheLen))
+        if len(patchShuffle) > cacheLen or doneProducing:
+            if not len(patchShuffle):
+                break
+            patch = patchShuffle.pop(random.randrange(len(patchShuffle)))
+            batch.append(patch)
+            if len(batch) >= batchSize:
+                saveBatch(batch, os.path.join(
+                    saveFolder,
+                    'batch_width%d_size%d_%05d.tfrecords' % (cropWidth, batchSize, iBatch)
+                ))
+                iBatch += 1
+                batch = []
+                ms = (time.time() - tic) * (nBatches - iBatch) / 60
+                tic = time.time()
+                hours = math.floor(ms / 60)
+                mins = ms % 60
+                print(
+                    '%.2f%% %d/%d, %d hours %.1f minutes left.' %
+                    ((iBatch) / nBatches * 100, iBatch, nBatches, hours, mins)
+                )
 
+    print(saveFolder + ' generated! ')
     # for iBatch in range(iBatchStart, int(nBatches)):
     #     batch = []
     #     for iFrame in [random.randint(0, len(frameDirs) - 1) for i in range(batchSize)]:

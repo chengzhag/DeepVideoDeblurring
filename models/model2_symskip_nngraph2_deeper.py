@@ -17,7 +17,9 @@ def create_model(input, training):
                         activation_fn=None,
                         normalizer_fn=slim.batch_norm), \
          slim.arg_scope([slim.batch_norm],
-                        is_training=training):
+                        is_training=training,
+                        decay=0.99,
+                        scale=True):
         F0 = slim.conv2d(input, 64, kernel_size=(5, 5), scope='F0')
 
         D1 = slim.conv2d(F0, 64, stride=2, scope='D1')

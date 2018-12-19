@@ -26,7 +26,7 @@ def parseArgs():
     parser.add_argument('--decay_from', type=int, default=24000, help='decay learning rate from decay_from iterations')
     parser.add_argument('--decay_every', type=int, default=8000, help='decay learning rate every decay_every iteration')
     parser.add_argument('--decay_rate', type=int, default=0.5, help='decay learning rate')
-    parser.add_argument('--save_every', type=int, default=100, help='auto save every save_every iterations')
+    parser.add_argument('--save_every', type=int, default=1000, help='auto save every save_every iterations')
     parser.add_argument('--log_every', type=int, default=100, help='log every log_every iterations')
 
     parser.add_argument('--data_testset', type=str, default=None, help='folder for testset data')
@@ -40,8 +40,8 @@ def parseArgs():
     return parser.parse_args()
 
 
-def scanSetFolder(folder):
-    dirs = glob.glob(os.path.join(folder,'*.tfrecords'))
+def scanSetFolder(folder, ext='*.tfrecords'):
+    dirs = glob.glob(os.path.join(folder, ext))
     dirs.sort()
     names = [os.path.split(dir)[1] for dir in dirs]
     return dirs, names
@@ -123,8 +123,8 @@ def valid(args):
 
 def test(args):
     # scan dataset
-    print('Scanning testset videos from %s' % args.data_trainset)
-    videoDirs, videoNames = scanSetFolder(args.data_testset)
+    print('Scanning testset videos from %s' % args.data_testset)
+    videoDirs, videoNames = scanSetFolder(args.data_testset, '*')
     print('Found %d testset videos' % len(videoDirs))
     showDirExamples(videoDirs)
 

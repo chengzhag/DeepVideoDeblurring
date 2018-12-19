@@ -5,9 +5,6 @@ import scipy.io as sio
 import numpy as np
 import time
 import matplotlib.pyplot as plt
-from threading import Thread
-from queue import Queue
-
 
 class Deblur(object):
     def __init__(self, createFcn, maxIntensity=255, nGPUs=1):
@@ -97,8 +94,8 @@ class Deblur(object):
         lossAvg = 0
         for iBatch in range(nValid):
             batchInput, batchGT = self.sess.run(batchT)
-            batchLoss, _ = self.sess.run(
-                (self.lossT),
+            batchLoss = self.sess.run(
+                self.lossT,
                 feed_dict={
                     self.trainingPh: False,
                     self.inputPh: batchInput,
@@ -156,6 +153,11 @@ class Deblur(object):
 
         batchT = self.loadDataset(trainsetDirs, batchSize)
 
+        saver = tf.train.Saver()
+        if ckpDir is not None:
+            if not os.path.exists(ckpDir):
+                os.makedirs(ckpDir)
+
         tic = time.time()
         it = tf.train.global_step(self.sess, self.globalStepV)
         avgSpeed = None
@@ -205,9 +207,6 @@ class Deblur(object):
 
             if it % saveEvery == 0 or it == itMax:
                 if ckpDir is not None:
-                    if not os.path.exists(ckpDir):
-                        os.makedirs(ckpDir)
-                    saver = tf.train.Saver()
                     savePath = saver.save(
                         self.sess,
                         os.path.join(ckpDir, 'checkpoints'),
